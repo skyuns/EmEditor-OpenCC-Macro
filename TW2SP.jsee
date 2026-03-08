@@ -1,0 +1,1179 @@
+﻿#language = "V8"
+#title = "", 1028, "", 2052, "TW2SP", 1033
+#tooltip = "Convert to Simplified Chinese Phrases", 1033, "转大陆用语", 2052, "轉大陸用語", 1028
+#icon="TW2SP.ico"
+
+/**
+ * Project: OpenCC for EmEditor Macro v0.18
+ * Author: skyuns (https://github.com/skyuns/EmEditor-OpenCC-Macro)
+ * This macro provides foundational conversion based on the OpenCC core lexicon. Note that results may vary from the official implementation.
+ * (本巨集基於 OpenCC 核心詞庫提供基礎繁簡轉換。請注意，轉換結果可能與官方執行版本有所出入。)
+ * Data Source: OpenCC (https://github.com/BYVoid/OpenCC)
+ * License: Apache License 2.0
+ * 轉換流程：1. 讀取用語字典 -> 2. 封裝 Trie 字典樹 -> 3. 動態分段由下往上執行 FMM 匹配
+ * 簡易測試：他在隨身碟裡存了一套程式，用來最佳化資料庫的品質，並修復網路問題。
+ * 參考結果：他在U盤裡存了一套程序，用來優化數據庫的品質，並修復網絡問題。 (僅做用語轉換)
+ */
+
+const CURRENT_MODE = "TW2SP"; 
+
+// --- [區塊 A：台灣用語 -> 大陸用語 (TWPhrasesRev.txt)] ---
+const rawPhraseData = `
+# Open Chinese Convert (OpenCC) Dictionary
+# File: TWPhrasesRev.txt
+# Format: key	value(s) (values separated by spaces)
+# License: Apache-2.0 (see LICENSE)
+# Source: https://github.com/ByVoid/OpenCC
+# Used in configs: tw2sp.json (via TWPhrasesRev.ocd2)
+
+PN接面	PN結
+SQL隱碼攻擊	SQL注入 SQL注入攻擊
+三極體	三極管
+下拉式清單	下拉列表
+丟擲	拋出
+中介軟體	中間件
+主機板	主板
+主開機記錄	主引導記錄
+乙太網	以太網
+乳酪	奶酪
+二極體	二極管
+互動	交互
+互動式	交互式
+亞塞拜然	阿塞拜疆
+人工智慧	人工智能
+介面	接口 界面
+介面卡	適配器
+代碼	代碼
+伺服器	服務器
+佇列	隊列
+位元	比特
+位元率	比特率
+位元組	字節
+位元速率	碼率
+位址	地址
+位址列	地址欄
+低級	低級
+低階	低級
+作業系統	操作系統
+使用者	用戶
+使用者名稱	用戶名
+來電轉接	呼叫轉移
+例項	實例
+信號	信號
+停用	禁用
+偵錯	調試
+偵錯程式	調試器
+傅立葉	傅里葉
+傳送	發送
+傷心小棧	紅心大戰
+價效比	性價比
+優先順序	優先級
+儲存	保存 存儲
+元件	組件
+光碟	光盤
+光碟機	光驅
+克羅埃西亞	克羅地亞
+入口網站	門戶網站
+內建	內置
+內碼表	代碼頁
+全域性	全局
+全形	全角
+全球資訊網	萬維網
+冰棒	冰棍
+冷盤	涼菜
+函式	函數
+函數語言程式設計	函數式編程
+刀鋒伺服器	刀片服務器
+分割槽	分區
+分散式	分佈式
+分時多工	時分複用
+分時多重進接	時分多址
+分碼多重進接	碼分多址
+分空間多重進接	空分多址
+分頻多工	頻分複用
+分頻多重進接	頻分多址
+列印	打印
+列支敦斯登	列支敦士登
+列舉	枚舉
+前處理器	預處理器
+剪下	剪切
+剪貼簿	剪貼板
+副檔名	擴展名 文件擴展名
+加彭	加蓬
+匯入	導入
+匯出	導出
+匯流排	總線
+區域性	局部
+區域網	局域網
+千里達及托巴哥	特立尼達和多巴哥
+半形	半角
+卡達	卡塔爾
+印表機	打印機
+即時	實時
+厄利垂亞	厄立特里亞
+厄瓜多	厄瓜多爾
+原始檔	源文件
+原始碼	原代碼 源代碼 源碼
+原生代碼	本地代碼
+參數列	參數表
+取樣	採樣
+取樣率	採樣率
+叢集	集羣
+史瓦濟蘭	斯威士蘭
+吉布地	吉布堤
+吉里巴斯	基里巴斯
+名字空間	命名空間
+名稱空間	命名空間
+吐瓦魯	圖瓦盧
+向量	矢量
+呼叫	調用
+命令列	命令行
+咖哩	咖喱
+哈薩克	哈薩克斯坦
+哥斯大黎加	哥斯達黎加
+啟用	激活
+喫茶小舖	喫茶小舖
+喬治亞	格魯吉亞
+單核心	宏內核
+回撥	回調
+圖示	圖標
+土庫曼	土庫曼斯坦
+地址	地址
+坦尚尼亞	坦桑尼亞
+型別	類型
+埠	端口
+執行	運行
+執行緒	線程
+執行長	首席執行官
+堆疊	堆棧
+場效電晶體	場效應管
+塑膠	塑料
+塔吉克	塔吉克斯坦
+塞席爾	塞舌爾
+塞普勒斯	塞浦路斯
+壁紙	壁紙
+夏農	香農
+外掛	插件
+外接	外置
+外部索引鍵	外鍵
+多型	多態
+多執行緒	多線程
+多工	多任務
+多明尼加	多米尼加
+太空梭	航天飛機
+奈及利亞	尼日利亞
+奈米	納米
+子音	輔音
+字串	字符串
+字元	字符
+字元集	字符集
+字型	字體
+字型檔	字庫
+字尾	後綴
+字節跳動	字節跳動
+字首	前綴
+存取	訪問
+存檔	存盤
+安地卡及巴布達	安提瓜和巴布達
+宏	宏
+宏都拉斯	洪都拉斯
+宕機	死機
+定址	尋址
+宣告	聲明
+實例	實例
+實體地址	物理地址
+實體記憶體	物理內存
+寬頻	寬帶
+寮國	老撾
+專案	項目
+對映	映射
+對話方塊	對話框
+對象	對象
+尚比亞	贊比亞
+尤拉	歐拉
+尼日	尼日爾
+巢狀	嵌套
+工作列	任務欄
+工作管理員	任務管理器
+巨集	宏
+巴布亞紐幾內亞	巴布亞新幾內亞
+巴貝多	巴巴多斯
+布吉納法索	布基納法索
+布林	布爾
+帛琉	帕勞
+平行計算	並行計算
+幾內亞比索	幾內亞比紹
+序列	串行
+序列埠	串口 串行端口
+序號產生器	註冊機
+建構函式	構造函數
+建立	創建
+引數	參數
+彙編	彙編
+影像	圖像
+影印	複印
+影片	視頻
+後設資料	元數據
+循環	循環
+微控制器	單片機
+快取	緩存
+快取記憶體	高速緩存
+快捷半導體	仙童半導體
+快閃記憶體	閃存
+感測	傳感
+憂鬱症	抑鬱症
+截圖	截屏
+打開	打開
+批次	批量
+技術長	首席技術官
+指令式程式設計	命令式編程
+指令碼	腳本
+指標	指針
+捲軸	滾動條
+掃描器	掃描儀
+排程	調度
+控制代碼	句柄
+控制元件	控件
+搜尋	搜索
+摩爾線程	摩爾線程
+摺積	捲積
+撥出	呼出
+擴充套件	擴展
+擴音	免提
+擷取	截取
+攜帶型	便攜式
+攝護腺	前列腺
+支持者	支持者
+支援	支持
+效能	性能
+整合	集成
+數位	數字
+數位印刷	數字印刷
+數位電子	數字電子
+數位電路	數字電路
+數字	數字
+數據機	調製解調器
+文件	文檔
+文字	文本
+文書處理	文字處理
+斯洛維尼亞	斯洛文尼亞
+新增	添加
+方程式	方程式
+映象	鏡像
+映象管	顯像管
+時脈頻率	時鐘頻率
+晶片	芯片
+智慧	智能
+智慧財產權	知識產權
+暫存器	寄存器
+最佳化	優化
+有失真壓縮	有損壓縮
+李彥宏	李彥宏
+查德	乍得
+查詢	查找
+核取按鈕	複選按鈕
+核取方塊	複選框
+核心	內核
+格瑞那達	格林納達
+桌上型	桌面型
+桌上型電腦	臺式機
+桌布	壁紙
+標頭檔案	頭文件
+模擬	仿真 模擬
+模組	模塊
+模里西斯	毛里求斯
+機率	幾率 概率
+檔名	文件名
+檔案	文件
+檢視	查看 視圖
+欄位	字段
+正規化	範式
+正規表示式	正則表達式
+母音	元音
+比特幣	比特幣
+氣泡排序	冒泡排序
+永珍	萬象
+永續性	持久性
+汶萊	文萊
+沙烏地阿拉伯	沙特阿拉伯
+泡麵	方便麪
+波士尼亞赫塞哥維納	波斯尼亞黑塞哥維那
+波札那	博茨瓦納
+波長分波多工	波分複用
+海內存知己	海內存知己
+消息	消息
+游標	光標
+溢位	溢出
+滑鼠	鼠標
+演算法	算法 演算法
+烏茲別克	烏茲別克斯坦
+無失真壓縮	無損壓縮
+燒錄	刻錄
+營運長	首席運營官
+片語	詞組
+物件	對象
+物件導向	面向對象
+狀態列	狀態欄
+獅子山	塞拉利昂
+瓜地馬拉	危地馬拉
+甘比亞	岡比亞
+畫素	像素
+登入	登錄
+登出	註銷
+登錄檔	註冊表
+盧安達	盧旺達
+目的碼	目標代碼
+直譯器	解釋器
+相容	兼容
+相簿	圖庫 相冊
+真實模式	實模式
+矽	硅
+砈	砹
+破圖	花屏
+硬碟	硬盤
+硬體	硬件
+碟片	盤片
+磁碟	磁盤
+磁碟機代號	盤符
+磁軌	磁道
+社區	社區
+社群	社區
+程序	進程
+程序不正義	程序不正義
+程序導向	面向過程
+程序式程式設計	過程式編程
+程序正義	程序正義
+程式	程序
+程式碼	代碼
+程式設計	編程
+程式設計師	程序員
+程式語言	編程語言
+稽核	審覈
+積體電路	集成電路
+空氣清淨機	空氣淨化器
+空間多工	空分複用
+突尼西亞	突尼斯
+筆記型電腦	筆記本電腦
+簡報	演示文稿
+簡訊	短信
+簽帳金融卡	借記卡
+粘貼	粘貼
+紐西蘭	新西蘭
+純喫茶	純喫茶
+索羅門群島	所羅門羣島
+索馬利亞	索馬里
+終端使用者	最終用戶
+組合語言	彙編語言
+組譯	彙編
+結束通話	掛斷
+維德角	佛得角
+網咖	網吧
+網絡卡	網卡
+網路	網絡
+網路上的芳鄰	網上鄰居
+網際網路	互聯網
+線上	在線
+縮圖	縮略圖
+縮排	縮進
+繫結	綁定
+義大利	意大利
+聖克里斯多福及尼維斯	聖基茨和尼維斯
+聖文森及格瑞那丁	聖文森特和格林納丁斯
+聖露西亞	聖盧西亞
+聖馬利諾	聖馬力諾
+聯結器	連接器
+聯絡	聯繫
+肯亞	肯尼亞
+胰臟	胰腺
+腳踏車	自行車
+自動旋轉螢幕	自動轉屏
+茅利塔尼亞	毛里塔尼亞
+莫三比克	莫桑比克
+菜單	菜單
+萬用字元	通配符
+萬那杜	瓦努阿圖
+葉門	也門
+葛摩	科摩羅
+蒲隆地	布隆迪
+蓋亞那	圭亞那
+藍色畫面	藍屏
+蘇利南	蘇里南
+處理程序	處理程序
+虛擬函式	虛函數
+虛擬機器	虛擬機 虛擬機器
+虛擬碼	僞代碼
+螢幕	屏幕
+行內函數	內聯函數
+行動式	便攜式
+行動硬碟	移動硬盤
+行動網路	移動網絡
+行動資料	移動資料
+行動通訊	移動通信
+行動電話	移動電話
+衣索比亞	埃塞俄比亞
+表示式	表達式
+裝置	設備
+複製	拷貝
+視窗	窗口
+視覺化	可視化
+視訊	視頻
+視訊會議	視頻會議
+視訊記憶體	顯存
+視訊通話	視頻通話
+解析度	分辨率
+解構函式	析構函數
+解除安裝	卸載
+觸控	觸摸
+觸控式螢幕	觸摸屏
+計程車	出租車 的士
+訊息	消息
+訊號	信號
+訊雜比	信噪比
+記憶體	內存
+訪問	訪問
+設定	設置
+許可權	權限
+調色盤	調色板
+調變	調製
+諾魯	瑙魯
+識別符號	標識符
+變數	變量
+象牙海岸	科特迪瓦
+貝南	貝寧
+貝里斯	伯利茲
+貼上	粘貼
+資料	數據
+資料來源	數據源
+資料倉儲	數據倉庫
+資料包	數據報
+資料夾	文件夾
+資料庫	數據庫
+資料探勘	數據挖掘
+資訊	信息
+資訊安全	信息安全
+資訊理論	信息論
+資訊科技	信息技術
+資訊長	首席信息官
+賓士	奔馳
+賴比瑞亞	利比里亞
+賴索托	萊索托
+超程式設計	元編程
+跳脫字元	轉義字符
+軟碟機	軟驅
+軟體	軟件
+軟體動物	軟體動物
+載入	加載
+載入程式	引導程序
+輝達	英偉達
+辛巴威	津巴布韋
+迦納	加納
+迴圈	循環
+透過	通過
+通訊	通信
+通話卡	通訊卡
+通話記錄	聯繫歷史
+通過	通過
+通道	信道
+速食麵	方便麪
+連結	鏈接
+連結串列	鏈表
+連線	連接
+進位制	進制
+進程	進程
+進階	高端 高級
+運算元	操作數 算子
+運算子	操作符 運算符
+運算式	表達式
+過載	重載
+遞迴	遞歸
+遠端	遠程
+遮蔽	屏蔽
+選單	菜單
+邏輯閘	邏輯門
+那杜	溫納圖萬
+部落格	博客
+都會網路	城域網
+醯	酰
+釋出	發佈
+重新命名	重命名
+重新整理	刷新
+重灌	重裝
+金氧半導體	金屬氧化物半導體
+金鑰	密鑰
+鈽	鈈
+鉲	鐦
+鉳	錇
+鋂	鎇
+錄影	錄像
+錼	鎿
+鍅	鈁
+鎝	鍀
+鎦	鑥
+鑀	鎄
+開啟	打開
+閘流體	晶閘管
+閘道器	網關
+閘電路	門電路
+關聯式資料庫	關係數據庫
+防寫	寫保護
+防毒	殺毒
+阿拉伯聯合大公國	阿拉伯聯合酋長國
+陣列	數組
+除錯	調試
+隨身碟	U盤
+雜湊	哈希 散列
+離線	脫機
+雲端儲存	雲存儲
+雲端計算	雲計算
+雷射	激光
+電晶體	晶體管
+電腦保安	計算機安全
+電腦科學	計算機科學
+非同步	異步
+韌體	固件
+音效卡	聲卡
+音訊	音頻
+頁尾	頁腳
+頁首	頁眉
+預設	缺省 默認
+預設值	默認值
+頻寬	帶寬
+類别範本	類模板
+類比	模擬
+類比電子	模擬電子
+類比電路	模擬電路
+顯示卡	顯卡
+飛航模式	飛行模式
+馬利共和國	馬里共和國
+馬爾地夫	馬爾代夫
+駭客	黑客
+高效能運算	高性能計算
+高畫質	高清
+高空彈跳	蹦極
+高級	高級
+高階	高端 高級
+黃宏	黃宏
+點選	點擊
+點陣圖	位圖
+`;
+
+// --- [區塊 B：自訂擴充覆寫詞庫] ---
+const rawPhraseExpandedData = `
+`;
+
+// --- [##核心邏輯區##] ---
+function main() {
+    // 1. 動態模式與多國語言設定
+    const langId = editor.LangID;
+    const _L = (en, tc, sc) => {
+        if (langId === 1028) return tc;
+        if (langId === 2052) return sc;
+        return en;
+    };
+
+    let msgModeNameTC = "", msgModeNameSC = "", msgModeNameEN = "";
+    
+    switch(CURRENT_MODE) {
+        case "T2S":
+            msgModeNameTC = "繁轉簡"; msgModeNameSC = "繁转简"; msgModeNameEN = "T2S"; break;
+        case "S2T":
+            msgModeNameTC = "簡轉繁"; msgModeNameSC = "简转繁"; msgModeNameEN = "S2T"; break;
+        case "S2TE":
+            msgModeNameTC = "簡轉繁: 擴充版"; msgModeNameSC = "简转繁: 扩充版"; msgModeNameEN = "S2T: Expanded"; break;
+        case "S2TWP":
+            msgModeNameTC = "用語轉換: 大陸 ➔ 台灣"; msgModeNameSC = "用语转换: 大陆 ➔ 台湾"; msgModeNameEN = "Terminology: CN->TW"; break;
+        case "TW2SP":
+            msgModeNameTC = "用語轉換: 台灣 ➔ 大陸"; msgModeNameSC = "用语转换: 台湾 ➔ 大陆"; msgModeNameEN = "Terminology: TW->CN"; break;
+        default:
+            msgModeNameTC = "文字"; msgModeNameSC = "文字"; msgModeNameEN = "Text"; break;
+    }
+
+    const MSG_NO_TEXT = _L("No text selected.", "未選取文字", "未选中文本");
+
+    const getMsgProcessing = (p) => _L(
+        `⏳ Processing... ${p}%`, 
+        `⏳ ${msgModeNameTC}處理中... ${p}%`, 
+        `⏳ ${msgModeNameSC}处理中... ${p}%`
+    );
+
+    const getMsgSuccess = (count, time) => {
+        let suffixTC = (CURRENT_MODE === "S2T" || CURRENT_MODE === "S2TE") ? "已套用台灣字形，" : "";
+        let suffixSC = (CURRENT_MODE === "S2T" || CURRENT_MODE === "S2TE") ? "已套用台湾字形，" : "";
+        return _L(
+            `✅ Conversion completed (${msgModeNameEN}, ${count} ops in ${time} s).`,
+            `✅ 轉換完成 (${msgModeNameTC}，${suffixTC}共取代 ${count} 處，耗時 ${time} 秒)`,
+            `✅ 转换完成 (${msgModeNameSC}，${suffixSC}共替换 ${count} 处，耗时 ${time} 秒)`
+        );
+    };
+
+    const startTime = Date.now();
+
+    // 2. 選取與防呆處理
+    let isCSVCellSel = false;
+    let initialText = "";
+    try { initialText = document.selection.Text; } catch(e) {}
+
+    try {
+        if ((document.selection.Mode & 15) === 4) isCSVCellSel = true;
+    } catch(e) {}
+
+    if (document.selection.IsEmpty && initialText.length > 0) {
+        isCSVCellSel = true;
+    }
+
+    if (!isCSVCellSel && document.selection.IsEmpty) {
+        document.selection.SelectWord();
+        if (document.selection.IsEmpty) {
+            alert(MSG_NO_TEXT); 
+            Quit();
+        }
+    }
+
+    const topY = document.selection.GetTopPointY(eePosLogical);
+    const topX = document.selection.GetTopPointX(eePosLogical);
+    const bottomY = document.selection.GetBottomPointY(eePosLogical);
+    const bottomX = document.selection.GetBottomPointX(eePosLogical);
+    const selectedLines = bottomY - topY + 1;
+
+    if (!isCSVCellSel && selectedLines > 15000000) {
+        alert(_L(
+            "⚠️ Selected lines exceed 15,000,000 limit. Conversion aborted. Please reduce selection.",
+            "⚠️ 選取總行數超過 1500 萬行，超出安全轉換限制。\n為避免系統無回應，請減少選取範圍後再試。",
+            "⚠️ 选取总行数超过 1500 万行，超出安全转换限制。\n为避免系统无回应，请减少选取范围后再试。"
+        ));
+        Quit();
+    }
+
+    let isFilterMode = false;
+    try {
+        if (document.filters && document.filters.Count > 0) {
+            isFilterMode = true;
+        }
+    } catch (e) {}
+
+    let selCount = 1;
+    let isMultiSel = false;
+    let isVerticalSel = false; 
+
+    try {
+        if ((document.selection.Mode & 15) === 3) {
+            isVerticalSel = true;
+            isMultiSel = true; 
+        }
+    } catch(e) {}
+
+    try {
+        if (typeof document.selection.Count !== "undefined" && document.selection.Count > 1) {
+            selCount = document.selection.Count;
+            isMultiSel = true;
+        }
+    } catch(e) {}
+
+    if (!isCSVCellSel && (isFilterMode || isMultiSel) && selectedLines > 5000) {
+        alert(_L(
+            "Selection exceeds 5000 lines limit for Filter/Multi-Select mode. Please reduce selection.",
+            "⚠️ 篩選或多段選取模式下，選取範圍超過 5000 行限制。\n為避免系統無回應，請減少選取範圍後再試。",
+            "⚠️ 筛选或多段选取模式下，选取范围超过 5000 行限制。\n为避免系统无回应，请减少选取范围后再试。"
+        ));
+        Quit();
+    }
+
+    // 3. 切塊邏輯
+    let chunks = [];
+    if (!isCSVCellSel && !isFilterMode && !isMultiSel) {
+        let numChunks = 1;
+        if (selectedLines > 5000000) numChunks = 50;
+        else if (selectedLines > 10000) numChunks = 20;
+        else if (selectedLines > 2000) numChunks = 5;
+
+        let linesPerChunk = Math.ceil(selectedLines / numChunks);
+        if (linesPerChunk < 1) linesPerChunk = 1;
+
+        let currY = topY;
+        while (currY <= bottomY) {
+            let eY = Math.min(currY + linesPerChunk - 1, bottomY);
+            chunks.push({
+                topY: currY, bottomY: eY,
+                isFirst: (currY === topY), isLast: (eY === bottomY)
+            });
+            currY = eY + 1;
+        }
+        chunks.reverse(); 
+    }
+
+    // 4. 動態構建 Trie 引擎
+    status = _L(
+        `⏳ Building Trie Engine & Processing (${msgModeNameEN})...`, 
+        `⏳ 建立字典樹引擎，${msgModeNameTC}處理中...`, 
+        `⏳ 建立字典树引擎，${msgModeNameSC}处理中...`
+    );
+
+    const variantMap = new Map();
+    const finalDict = new Map();
+
+    const needVariants = (CURRENT_MODE === "S2T" || CURRENT_MODE === "S2TE");
+    
+    if (needVariants) {
+        try {
+            const linesTW = rawTWVariants.split("\n");
+            for (let line of linesTW) {
+                let trimmed = line.trim();
+                if (!trimmed || trimmed.startsWith("#")) continue;
+                let parts = trimmed.split("\t");
+                if (parts.length >= 2) variantMap.set(parts[0], parts[1].split(" ")[0]);
+            }
+        } catch(e) {}
+    }
+
+    const applyTWVariants = (str) => {
+        if (!needVariants) return str; 
+        let res = "";
+        for (let c of str) res += variantMap.has(c) ? variantMap.get(c) : c;
+        return res;
+    };
+
+    const parseMainData = (rawStr) => {
+        if (!rawStr) return;
+        const lines = rawStr.split("\n");
+        for (let line of lines) {
+            let trimmed = line.trim();
+            if (!trimmed || trimmed.startsWith("#")) continue;
+            let parts = trimmed.split("\t");
+            if (parts.length >= 2) {
+                let key = parts[0];
+                let target = applyTWVariants(parts[1].split(" ")[0]); 
+                if (!finalDict.has(key)) finalDict.set(key, target);
+            }
+        }
+    };
+
+    try { parseMainData(rawPhraseExpandedData); } catch(e){}
+    try { parseMainData(rawPhraseData); } catch(e){}
+    
+    if (CURRENT_MODE !== "S2TWP" && CURRENT_MODE !== "TW2SP") {
+        try { parseMainData(rawCharData); } catch(e){}
+    }
+
+    if (needVariants) {
+        for (let [vKey, vTarget] of variantMap) {
+            if (!finalDict.has(vKey)) finalDict.set(vKey, vTarget);
+        }
+    }
+
+    const trie = Object.create(null);
+    for (let [key, target] of finalDict) {
+        let node = trie;
+        for (let j = 0; j < key.length; j++) {
+            let char = key[j];
+            if (node[char] === undefined) node[char] = Object.create(null);
+            node = node[char];
+        }
+        node.isWord = true;
+        node.target = target;
+    }
+
+    const doConvert = (srcText) => {
+        let textLen = srcText.length;
+        let out = []; 
+        let i = 0;
+        let lastMatchEnd = 0;
+        let replaceCount = 0;
+
+        while (i < textLen) {
+            let node = trie;
+            let longestMatchLen = 0;
+            let longestMatchTarget = null;
+            let j = i;
+
+            while (j < textLen) {
+                let char = srcText[j];
+                node = node[char];
+                if (node === undefined) break; 
+                if (node.isWord) {
+                    longestMatchLen = j - i + 1;
+                    longestMatchTarget = node.target;
+                }
+                j++;
+            }
+
+            if (longestMatchLen > 0) {
+                if (i > lastMatchEnd) out.push(srcText.substring(lastMatchEnd, i));
+                let originalText = srcText.substring(i, i + longestMatchLen);
+                if (originalText !== longestMatchTarget) replaceCount++;
+                out.push(longestMatchTarget);
+                i += longestMatchLen;
+                lastMatchEnd = i;
+            } else { i++; }
+        }
+        if (lastMatchEnd < textLen) out.push(srcText.substring(lastMatchEnd, textLen));
+        return { text: out.join(""), count: replaceCount };
+    };
+
+    // 5. 開始轉換
+    let totalReplaced = 0;
+    let bOrgCombine = false; 
+
+    try { Redraw = false; } catch(e) {}
+    try { 
+        bOrgCombine = CombineHistory;
+        CombineHistory = true; 
+    } catch(e) {} 
+
+    try {
+        if (isCSVCellSel) {
+            const eePosCell = 4;
+            const eePosLogical = 1;
+            let cTopRow, cBottomRow, cTopCol, cBottomCol;
+            try {
+                cTopRow = document.selection.GetTopPointY(eePosCell);
+                cBottomRow = document.selection.GetBottomPointY(eePosCell);
+                cTopCol = document.selection.GetTopPointX(eePosCell);
+                cBottomCol = document.selection.GetBottomPointX(eePosCell);
+            } catch(e) {
+                status = "";
+                alert(_L("❌ Error reading cell coordinates.", "❌ 無法取得儲存格座標！", "❌ 无法取得单元格坐标！"));
+                Quit();
+            }
+
+            let totalCells = (cBottomRow - cTopRow + 1) * (cBottomCol - cTopCol + 1);
+            let delimChar = "\t"; 
+            try {
+                if (document.Csv) delimChar = document.Csv.Delimiter;
+            } catch(e) {}
+
+            let origTopY = document.selection.GetTopPointY(eePosLogical);
+            let origTopX = document.selection.GetTopPointX(eePosLogical);
+            let origBotY = document.selection.GetBottomPointY(eePosLogical);
+            let origBotX = document.selection.GetBottomPointX(eePosLogical);
+
+            document.selection.SetActivePoint(eePosCell, 1, cTopRow);
+            document.selection.SetActivePoint(eePosCell, cBottomCol, cBottomRow, true);
+            let fullText = document.selection.Text;
+
+            document.selection.SetActivePoint(eePosCell, cTopCol, cTopRow);
+            document.selection.SetActivePoint(eePosCell, cBottomCol, cBottomRow, true);
+
+            let isJagged = false;
+            let cleanText = fullText.replace(/[\r\n]+$/, "");
+            let lines = cleanText.split(/\r?\n/);
+            let requiredDelims = cBottomCol - 1;
+
+            for (let i = 0; i < lines.length; i++) {
+                let line = lines[i];
+                let count = 0;
+                let inQuotes = false;
+
+                for (let j = 0; j < line.length; j++) {
+                    let char = line[j];
+                    if (char === '"') inQuotes = !inQuotes;
+                    else if (char === delimChar && !inQuotes) count++;
+                }
+
+                if (count < requiredDelims) {
+                    isJagged = true;
+                    break;
+                }
+            }
+
+            if (lines.length < (cBottomRow - cTopRow + 1)) {
+                isJagged = true;
+            }
+
+            if (isJagged) {
+                if (totalCells > 10000) {
+                    status = "";
+                    alert(_L(
+                        "⚠️ Irregular CSV selection (>10,000 cells) detected.\nConversion aborted to prevent data shifting. Please select a smaller area or a perfect rectangle.",
+                        "⚠️ 偵測到不規則的 CSV 選取範圍，且超過 10,000 格限制。\n為防止轉換後發生資料推擠錯位，系統已自動攔截轉換。請縮小選取範圍，或選取完整矩形。",
+                        "⚠️ 侦测到不规则的 CSV 选取范围，且超过 10,000 格限制。\n为防止转换后发生数据推挤错位，系统已自动拦截转换。请缩小选取范围，或选取完整矩形。"
+                    ));
+                    Quit();
+                } else {
+                    ShowTip(_L(
+                        "📊 Irregular CSV detected, preparing precise conversion...", 
+                        "📊 偵測到不規則的 CSV 選取範圍，精確轉換準備中...", 
+                        "📊 侦测到不规则的 CSV 选取范围，精确转换准备中..."
+                    ), 1);
+
+                    
+                    let pendingCells = [];
+
+                    for (let r = cTopRow; r <= cBottomRow; r++) {
+                        for (let c = cTopCol; c <= cBottomCol; c++) {
+                            let cellText = "";
+                            try {
+                                cellText = document.GetCell(r, c, 0); 
+                            } catch(e) {
+                                continue;
+                            }
+
+                            if (cellText) {
+                                if (cellText.length > 25000000) {
+                                    status = "";
+                                    alert(_L("⚠️ Selection contains a giant cell.", "⚠️ 選取範圍包含超過 50MB 的巨型儲存格，停止轉換。", "⚠️ 选取范围包含超过 50MB 的巨型单元格，停止转换。"));
+                                    Quit();
+                                }
+                                let res = doConvert(cellText);
+                                if (res.count > 0) {
+                                    pendingCells.push({ r: r, c: c, text: res.text, count: res.count });
+                                }
+                            }
+                        }
+                    }
+
+                    let tCells = pendingCells.length;
+                    for (let i = 0; i < tCells; i++) {
+                        if (i % Math.max(1, Math.floor(tCells / 9)) === 0) {
+                            ShowTip(getMsgProcessing(Math.round(((i + 1) / tCells) * 99)), 1);
+                        }
+                        let item = pendingCells[i];
+                        try {
+                            document.SetCell(item.r, item.c, item.text, 0); 
+                            totalReplaced += item.count;
+                        } catch(e) {}
+                    }
+
+                    try {
+                        document.selection.SetActivePoint(eePosCell, cTopCol, cTopRow);
+                        document.selection.SetActivePoint(eePosCell, cBottomCol, cBottomRow, true);
+                    } catch(e) {}
+                    ShowTip("", eeShowTipHide);
+                }
+            } else {
+                let srcText = document.selection.Text;
+
+                if (srcText && srcText.length > 150000000) {
+                    status = "";
+                    alert(_L("⚠️ Selection contains a giant chunk (> 300MB). Conversion aborted.", "⚠️ 選取範圍包含超過 300MB 的單一巨型資料區塊，為防止記憶體溢位，停止轉換。", "⚠️ 选取范围包含超过 300MB 的单一巨型数据区块，为防止内存溢出，停止转换。"));
+                    Quit();
+                }
+
+                ShowTip(_L("📊 CSV mode processing...", "📊 CSV模式轉換處理中...", "📊 CSV模式转换处理中..."), 1);
+
+                if (srcText) {
+                    let hasTrailingNewline = /[\r\n]+$/.test(srcText);
+                    let res = doConvert(srcText);
+                    if (res.count > 0) {
+                        let outText = res.text;
+                        if (hasTrailingNewline) {
+                            outText = outText.replace(/[\r\n]+$/, "");
+                        }
+                        document.selection.Text = outText;
+                        totalReplaced += res.count;
+                    }
+                }
+                ShowTip("", eeShowTipHide);
+            }
+
+        } else if (isFilterMode) {
+            let blocks = [];
+            if (isVerticalSel && selCount === 1) {
+                let minX = Math.min(topX, bottomX);
+                let maxX = Math.max(topX, bottomX);
+                for (let y = topY; y <= bottomY; y++) {
+                    blocks.push({
+                        ty: y, tx: minX, by: y, bx: maxX
+                    });
+                }
+            } else if (isMultiSel) {
+                for (let i = 1; i <= selCount; i++) {
+                    try {
+                        blocks.push({
+                            ty: document.selection.GetTopPointY(eePosLogical, i),
+                            tx: document.selection.GetTopPointX(eePosLogical, i),
+                            by: document.selection.GetBottomPointY(eePosLogical, i),
+                            bx: document.selection.GetBottomPointX(eePosLogical, i)
+                        });
+                    } catch(e) {}
+                }
+            } else {
+                blocks.push({ ty: topY, tx: topX, by: bottomY, bx: bottomX });
+            }
+
+            let pendingWrites = [];
+            for (let c = 0; c < blocks.length; c++) {
+                let b = blocks[c];
+                for (let y = b.ty; y <= b.by; y++) {
+                    let lineStr = document.GetLine(y); 
+                    let lineLen = lineStr.length; 
+                    let startX = (y === b.ty) ? b.tx : 1;
+                    let endX = (y === b.by) ? b.bx : (lineLen + 1);
+
+                    if (startX > lineLen + 1) startX = lineLen + 1;
+                    if (endX > lineLen + 1) endX = lineLen + 1;
+                    if (startX >= endX) continue;
+
+                    let textToProcess = lineStr.substring(startX - 1, endX - 1);
+                    if (!textToProcess) continue;
+
+                    if (textToProcess.length > 25000000) {
+                        status = "";
+                        alert(_L("⚠️ Selection contains a giant single line (> 50MB). Conversion aborted.", "⚠️ 選取範圍包含超過 50MB 的單一巨型資料行，為防止記憶體溢位，停止轉換。", "⚠️ 选取范围包含超过 50MB 的单一巨型数据行，为防止内存溢出，停止转换。"));
+                        Quit();
+                    }
+
+                    let res = doConvert(textToProcess);
+                    if (res.count > 0) pendingWrites.push({ y: y, startX: startX, endX: endX, text: res.text, count: res.count });
+                }
+            }
+
+            pendingWrites.sort(function(a, b) {
+                if (b.y !== a.y) return b.y - a.y;
+                return b.startX - a.startX;
+            });
+
+            let totalW = pendingWrites.length;
+            for (let w = 0; w < totalW; w++) {
+                if (w % Math.max(1, Math.floor(totalW / 9)) === 0) {
+                    ShowTip(getMsgProcessing(Math.round(((w + 1) / totalW) * 99)), 1);
+                }
+                let item = pendingWrites[w];
+                try {
+                    document.selection.SetActivePoint(eePosLogical, item.startX, item.y);
+                    if (document.selection.GetActivePointY(eePosLogical) === item.y) {
+                        document.selection.SetActivePoint(eePosLogical, item.endX, item.y, true);
+                        document.selection.Text = item.text;
+                        totalReplaced += item.count;
+                    }
+                } catch(e) {}
+            }
+            ShowTip("", eeShowTipHide);
+
+        } else if (isMultiSel) {
+            let multiBlocks = [];
+            
+            if (isVerticalSel && selCount === 1) {
+                let minX = Math.min(topX, bottomX);
+                let maxX = Math.max(topX, bottomX);
+                for (let y = topY; y <= bottomY; y++) {
+                    multiBlocks.push({ ty: y, tx: minX, by: y, bx: maxX });
+                }
+            } else {
+                for (let i = 1; i <= selCount; i++) {
+                    try {
+                        multiBlocks.push({
+                            ty: document.selection.GetTopPointY(eePosLogical, i),
+                            tx: document.selection.GetTopPointX(eePosLogical, i),
+                            by: document.selection.GetBottomPointY(eePosLogical, i),
+                            bx: document.selection.GetBottomPointX(eePosLogical, i)
+                        });
+                    } catch (e) {}
+                }
+            }
+            multiBlocks.reverse();
+
+            let totalM = multiBlocks.length;
+            for (let i = 0; i < totalM; i++) {
+                if (i % Math.max(1, Math.floor(totalM / 9)) === 0) {
+                    ShowTip(getMsgProcessing(Math.round(((i + 1) / totalM) * 99)), 1);
+                }
+                let b = multiBlocks[i];
+                try {
+                    document.selection.SetActivePoint(eePosLogical, b.tx, b.ty);
+                    document.selection.SetActivePoint(eePosLogical, b.bx, b.by, true);
+                    let srcText = document.selection.Text;
+                    if (!srcText) continue;
+
+                    if (srcText.length > 25000000) {
+                        status = "";
+                        alert(_L("⚠️ Selection contains a giant chunk (> 50MB). Conversion aborted.", "⚠️ 選取範圍包含超過 50MB 的單一巨型資料區塊，為防止記憶體溢位，停止轉換。", "⚠️ 选取范围包含超过 50MB 的单一巨型数据区块，为防止内存溢出，停止转换。"));
+                        Quit();
+                    }
+
+                    let res = doConvert(srcText);
+                    if (res.count > 0) {
+                        document.selection.Text = res.text;
+                        totalReplaced += res.count;
+                    }
+                } catch (e) { continue; }
+            }
+            ShowTip("", eeShowTipHide);
+
+        } else {
+            const totalChunks = chunks.length;
+            for (let c = 0; c < totalChunks; c++) {
+                let progress = Math.round(((c + 1) / totalChunks) * 99);
+                ShowTip(getMsgProcessing(progress), 1);
+
+                let chunk = chunks[c];
+                if (chunk.isFirst) {
+                    document.selection.SetActivePoint(eePosLogical, topX, chunk.topY);
+                } else {
+                    document.selection.SetActivePoint(eePosLogical, 1, chunk.topY);
+                }
+                if (chunk.isLast) {
+                    document.selection.SetActivePoint(eePosLogical, bottomX, chunk.bottomY, true);
+                } else {
+                    document.selection.SetActivePoint(eePosLogical, 1, chunk.bottomY + 1, true);
+                }
+
+                let srcText = "";
+                try {
+                    srcText = document.selection.Text;
+                } catch (e) {
+                    status = "";
+                    alert(_L(`❌ Crash at chunk ${c + 1}.`, `❌ 第 ${c + 1} 區塊失敗。`, `❌ 第 ${c + 1} 区块失败。`));
+                    Quit();
+                }
+                if (!srcText) continue;
+
+                if (srcText.length > 25000000 && chunk.topY === chunk.bottomY) {
+                    status = "";
+                    alert(_L("⚠️ Selection contains a giant single line (> 50MB). Conversion aborted.", "⚠️ 選取範圍包含超過 50MB 的單一巨型資料行，為防止記憶體溢位，停止轉換。", "⚠️ 选取范围包含超过 50MB 的单一巨型数据行，为防止内存溢出，停止转换。"));
+                    Quit();
+                }
+
+                let res = doConvert(srcText);
+                if (res.count > 0) {
+                    try {
+                        document.selection.Text = res.text;
+                        totalReplaced += res.count;
+                    } catch (e) {
+                        status = "";
+                        alert(_L("Memory error.", "寫入時發生記憶體不足。", "写入时发生内存不足。"));
+                        Quit();
+                    }
+                }
+            }
+            ShowTip("", eeShowTipHide);
+        }
+
+        if (!isCSVCellSel) {
+            if (!isFilterMode && !isMultiSel) {
+                document.selection.SetActivePoint(eePosLogical, topX, topY);
+                document.selection.SetActivePoint(eePosLogical, bottomX, bottomY, true);
+            } else {
+                document.selection.SetActivePoint(eePosLogical, topX, topY);
+            }
+        }
+
+    } finally {
+        try { CombineHistory = bOrgCombine; } catch(e) {} 
+        try { Redraw = true; } catch(e) {}
+
+        if (totalReplaced > 0 && !isCSVCellSel && document.Csv && document.Csv.Delimiter !== "") {
+            editor.ExecuteCommandByID(3967);
+            editor.ExecuteCommandByID(3967);
+            shell.SendKeys( "{LEFT}" ); 
+            shell.SendKeys( "{RIGHT}" ); 
+        }
+
+        finalDict.clear();
+    }
+
+    // 6. 收尾與計時
+    const endTime = Date.now();
+    const elapsedSeconds = ((endTime - startTime) / 1000).toFixed(2);
+
+    if (totalReplaced > 0) {
+        status = getMsgSuccess(totalReplaced, elapsedSeconds); 
+    } else {
+        status = _L(
+            `ℹ️ No text requiring changes was found, so no conversion was made (${elapsedSeconds} s).`, 
+            `ℹ️ 內容未包含需要變更的文字，未執行 ${msgModeNameTC} 轉換 (耗時 ${elapsedSeconds} 秒)`, 
+            `ℹ️ 内容未包含需要变更的文字，未执行 ${msgModeNameSC} 转换 (耗时 ${elapsedSeconds} 秒)`
+        );
+    }
+}
+
+main();
