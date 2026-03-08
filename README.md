@@ -23,13 +23,19 @@
 - [x] 整合完整詞組比對功能 (Phrases) / 整合完整词组比对功能
 - [x] 支援台灣標準字形修正 (TWVariants) / 支持台湾标准字形修正
 
-## 授權與致謝 / 授权与致谢
-- 本專案詞庫數據來源：[OpenCC](https://github.com/BYVoid/OpenCC)
-- 授權協議：依循 OpenCC 採用之 **Apache License 2.0**。
+## 授權與特別感謝 / 授权与特别感谢 / Licenses & Special Thanks
 
-特別感謝 **BYVoid (郭家寶先生)** 對於中文資訊處理與開源社群的卓越貢獻。
+### 授權協議 / 授权协议 / License
+- **詞庫數據來源 / 词库数据来源**：[OpenCC](https://github.com/BYVoid/OpenCC)
+- **授權協議 / 授权协议**：遵循 OpenCC 之 **Apache License 2.0**。
 
-特别感谢 **BYVoid (郭家宝先生)** 对于中文信息处理与开源社区的卓越贡献。
+### 特別感謝 / 特别感谢 / Special Thanks
+- **BYVoid (郭家寶先生 / 郭家宝先生)**：
+  - 特別感謝其對於中文資訊處理與開源社群的卓越貢獻。
+  - 特别感谢其对于中文信息处理与开源社区的卓越贡献。
+- **Yutaka Emura (江村 豊 先生)**：
+  - 特別感謝 **EmEditor** 作者江村先生。在巨集開發過程中，江村先生針對介面同步與效能優化提供了關鍵的技術指導，並感謝其開發出如此卓越的編輯工具。
+  - Special thanks to the creator of EmEditor for his invaluable technical guidance on macro development and UI synchronization.
 
 ---
 
