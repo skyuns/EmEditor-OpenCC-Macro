@@ -4,7 +4,7 @@
 #icon="S2TWP.ico"
 
 /**
- * Project: OpenCC for EmEditor Macro v0.18
+ * Project: OpenCC for EmEditor Macro v0.19
  * Author: skyuns (https://github.com/skyuns/EmEditor-OpenCC-Macro)
  * This macro provides foundational conversion based on the OpenCC core lexicon. Note that results may vary from the official implementation.
  * (本巨集基於 OpenCC 核心詞庫提供基礎繁簡轉換。請注意，轉換結果可能與官方執行版本有所出入。)
@@ -600,17 +600,22 @@ function main() {
 
     const startTime = Date.now();
 
-    // 2. 選取與防呆處理
+    // 2. 選取與防呆處理 (穩定版)
     let isCSVCellSel = false;
-    let initialText = "";
-    try { initialText = document.selection.Text; } catch(e) {}
 
     try {
         if ((document.selection.Mode & 15) === 4) isCSVCellSel = true;
     } catch(e) {}
 
-    if (document.selection.IsEmpty && initialText.length > 0) {
-        isCSVCellSel = true;
+    if (!isCSVCellSel && document.selection.IsEmpty) {
+        let checkText = "";
+        try { 
+            checkText = document.selection.Text; 
+        } catch(e) {}
+        
+        if (checkText.length > 0) {
+            isCSVCellSel = true;
+        }
     }
 
     if (!isCSVCellSel && document.selection.IsEmpty) {
@@ -703,6 +708,26 @@ function main() {
     const variantMap = new Map();
     const finalDict = new Map();
 
+    // --- [初始化區塊 E 例外名單防火牆] ---
+    const exceptionSet = new Set();
+    const exceptionMap = new Map();
+    try {
+        const linesEx = rawExceptionData.split("\n");
+        for (let line of linesEx) {
+            let trimmed = line.trim();
+            if (!trimmed || trimmed.startsWith("#")) continue;
+            let parts = trimmed.split("\t");
+            if (parts.length >= 2) {
+                let key = parts[0];
+                let target = parts[1];
+                exceptionSet.add(key);
+                exceptionSet.add(target);
+                exceptionMap.set(key, target);
+                exceptionMap.set(target, target);
+            }
+        }
+    } catch(e) {}
+
     const needVariants = (CURRENT_MODE === "S2T" || CURRENT_MODE === "S2TE");
     
     if (needVariants) {
@@ -733,12 +758,24 @@ function main() {
             let parts = trimmed.split("\t");
             if (parts.length >= 2) {
                 let key = parts[0];
-                let target = applyTWVariants(parts[1].split(" ")[0]); 
-                if (!finalDict.has(key)) finalDict.set(key, target);
+                let rawTarget = parts[1].split(" ")[0];
+
+                let target;
+
+                if (exceptionMap && exceptionMap.has(key)) {
+                    target = exceptionMap.get(key);
+                } else {
+                    target = applyTWVariants(rawTarget);
+                }
+
+                if (!finalDict.has(key)) {
+                    finalDict.set(key, target);
+                }
             }
         }
     };
 
+    try { parseMainData(rawExceptionData); } catch(e){}
     try { parseMainData(rawPhraseExpandedData); } catch(e){}
     try { parseMainData(rawPhraseData); } catch(e){}
     
