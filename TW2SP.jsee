@@ -4,7 +4,7 @@
 #icon="TW2SP.ico"
 
 /**
- * Project: OpenCC for EmEditor Macro v0.19
+ * Project: OpenCC for EmEditor Macro v0.20
  * Author: skyuns (https://github.com/skyuns/EmEditor-OpenCC-Macro)
  * This macro provides foundational conversion based on the OpenCC core lexicon. Note that results may vary from the official implementation.
  * (本巨集基於 OpenCC 核心詞庫提供基礎繁簡轉換。請注意，轉換結果可能與官方執行版本有所出入。)
@@ -797,16 +797,43 @@ function main() {
         }
     }
 
-    const trie = Object.create(null);
-    for (let [key, target] of finalDict) {
-        let node = trie;
-        for (let j = 0; j < key.length; j++) {
-            let char = key[j];
-            if (node[char] === undefined) node[char] = Object.create(null);
-            node = node[char];
+    // Trie 引擎 最佳化(V8 加速)
+    status = _L(
+        `⏳ Trie Engine V8 Optimization & Processing (${msgModeNameEN})...`, 
+        `⏳ 字典樹引擎 V8 最佳化，${msgModeNameTC}處理中...`, 
+        `⏳ 字典树引擎 V8 优化，${msgModeNameSC}处理中...`
+    );
+
+    class TrieNode {
+        constructor() {
+            this.c = new Map();
+            this.v = null;
+            this.o = null;
         }
-        node.isWord = true;
-        node.target = target;
+    }
+
+    const rootNodes = new Array(65536);
+
+    for (let [key, target] of finalDict) {
+        if (!key) continue;
+        let firstCode = key.charCodeAt(0);
+        let node = rootNodes[firstCode];
+        if (!node) {
+            node = new TrieNode();
+            rootNodes[firstCode] = node;
+        }
+
+        for (let j = 1; j < key.length; j++) {
+            let code = key.charCodeAt(j);
+            let nextNode = node.c.get(code);
+            if (!nextNode) {
+                nextNode = new TrieNode();
+                node.c.set(code, nextNode);
+            }
+            node = nextNode;
+        }
+        node.v = target;
+        node.o = key;
     }
 
     const doConvert = (srcText) => {
@@ -817,32 +844,59 @@ function main() {
         let replaceCount = 0;
 
         while (i < textLen) {
-            let node = trie;
+            let firstCode = srcText.charCodeAt(i);
+            let node = rootNodes[firstCode];
+
+            if (node === undefined) {
+                i++;
+                continue;
+            }
+
             let longestMatchLen = 0;
             let longestMatchTarget = null;
+            let longestMatchOriginal = null;
             let j = i;
 
+            if (node.v !== null) {
+                longestMatchLen = 1;
+                longestMatchTarget = node.v;
+                longestMatchOriginal = node.o;
+            }
+
+            j++;
             while (j < textLen) {
-                let char = srcText[j];
-                node = node[char];
+                let code = srcText.charCodeAt(j);
+                node = node.c.get(code);
                 if (node === undefined) break; 
-                if (node.isWord) {
+                
+                if (node.v !== null) {
                     longestMatchLen = j - i + 1;
-                    longestMatchTarget = node.target;
+                    longestMatchTarget = node.v;
+                    longestMatchOriginal = node.o;
                 }
                 j++;
             }
 
             if (longestMatchLen > 0) {
-                if (i > lastMatchEnd) out.push(srcText.substring(lastMatchEnd, i));
-                let originalText = srcText.substring(i, i + longestMatchLen);
-                if (originalText !== longestMatchTarget) replaceCount++;
+                if (i > lastMatchEnd) {
+                    out.push(srcText.substring(lastMatchEnd, i));
+                }
+                
+                if (longestMatchOriginal !== longestMatchTarget) {
+                    replaceCount++;
+                }
+                
                 out.push(longestMatchTarget);
                 i += longestMatchLen;
                 lastMatchEnd = i;
-            } else { i++; }
+            } else { 
+                i++; 
+            }
         }
-        if (lastMatchEnd < textLen) out.push(srcText.substring(lastMatchEnd, textLen));
+        
+        if (lastMatchEnd < textLen) {
+            out.push(srcText.substring(lastMatchEnd, textLen));
+        }
         return { text: out.join(""), count: replaceCount };
     };
 
