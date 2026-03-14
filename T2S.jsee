@@ -4,7 +4,7 @@
 #icon="T2S.ico"
 
 /**
- * Project: OpenCC for EmEditor Macro v0.22
+ * Project: OpenCC for EmEditor Macro v0.24
  * Author: skyuns (https://github.com/skyuns/EmEditor-OpenCC-Macro)
  * This macro provides foundational conversion based on the OpenCC core lexicon. Note that results may vary from the official implementation.
  * (本巨集基於 OpenCC 核心詞庫提供基礎繁簡轉換。請注意，轉換結果可能與官方執行版本有所出入。)
@@ -13,10 +13,11 @@
  * 轉換流程：1. 讀取主字典映射 -> 2. 封裝 Trie 字典樹 -> 3. 動態分段由下往上執行 FMM 匹配
  * 簡易測試：乾隆在乾淨的房間裡瞭望遠方，看見屋簷下一齣戲正在上演，於是轉身一出去，扭轉乾坤。
  * 參考結果：乾隆在干净的房间里瞭望远方，看见屋檐下一出戏正在上演，于是转身一出去，扭转乾坤。
+ * [Disclaimer] The simulator comparison feature is a non-official API implementation provided by Gemini for personal research; users assume all risks regarding potential IP rate-limiting. Default is disabled.
  */
 
 const CURRENT_MODE = "T2S";
-const Simulator_MODE = false;
+const Simulator_MODE = false; // 模擬轉換模式 (true: 始終開啟; false: 需按住 Ctrl 觸發)
 
 // --- [區塊 A：繁轉簡詞組資料 (TSPhrases.txt)] ---
 const rawPhraseData = `
@@ -312,6 +313,7 @@ const rawPhraseExpandedData = `
 # ⚠️優先覆寫區 (Override)
 # 說明：賦予此區塊較高優先權，會直接覆寫並取代官方字典的預設轉換結果。
 # 特性：悉依個人語感與使用情境進行修改與調整，可依需求自行編輯取捨。
+
 藉著	借着
 `;
 
@@ -4443,10 +4445,393 @@ const rawCharData = `
 著	着
 `;
 
+// --- [##新增] Google 翻譯與巨集比對引擎 ---
+async function compareWithGoogle(origText, macroText, modeNames) {
+    shell.KeepRunning = true;
+
+    const langId = editor.LangID;
+    const _L = (en, tc, sc) => {
+        if (langId === 1028) return tc;
+        if (langId === 2052) return sc;
+        return en;
+    };
+
+    let lblSimMode = _L("✨ Simulation Comparison Mode ✨", "✨ 模擬比對模式 ✨", "✨ 模拟比对模式 ✨");
+    let apiErrorMsg = _L("❌ Temporarily unable to connect", "❌ 暫時無法連線", "❌ 暂时无法连线");
+
+    // 第一次按 Ctrl 且網頁未開啟時：初始化 WebBar
+    if (!WebBar.Visible) {
+        let waitDesc = _L("Please run the macro again to display the results.", "請再次執行巨集以顯示比對結果。", "请再次执行宏以显示对比结果。");
+        
+        var waitHtml = `<!DOCTYPE html><html><body style='font-family:Segoe UI, sans-serif; display:flex; justify-content:center; align-items:center; height:100vh; background:#f4f4f4; margin:0;'><div style='text-align:center; padding:30px; background:#fff; border-radius:10px; box-shadow:0 4px 15px rgba(0,0,0,0.1);'><h2 style='color:#0275d8; margin-top:0;'>${lblSimMode}</h2><p style='color:#555; font-size:16px; margin-bottom:0;'>${waitDesc}</p></div></body></html>`;
+        var dataUrl = "data:text/html;charset=utf-8," + encodeURIComponent(waitHtml);
+        
+        WebBar.Open(dataUrl);
+        shell.KeepRunning = false;
+        return;
+    }
+
+    try {
+        // 1. 上限防呆
+        if (origText.length > 200) {
+            let limitMsg = _L(
+                "⚠️ Selection exceeds 200 characters limit (" + origText.length + " chars). Google translation comparison skipped.\n",
+                "⚠️ 選取字數為 " + origText.length + " 字，超過 200 字上限，已跳過 Google 翻譯比對。\n",
+                "⚠️ 选取字数为 " + origText.length + " 字，超过 200 字上限，已跳过 Google 翻译对比。\n"
+            );
+            openInWebBar(limitMsg);
+            return;
+        }
+
+        let targetLang = (CURRENT_MODE === "T2S" || CURRENT_MODE === "TW2SP") ? "zh-CN" : "zh-TW";
+        let sourceLang = (CURRENT_MODE === "T2S" || CURRENT_MODE === "TW2SP") ? "zh-TW" : "zh-CN";
+
+        // 2. 函數定義區
+        function computeDiff(oldStr, newStr) {
+            var oldChars = Array.from(oldStr), newChars = Array.from(newStr);
+            var m = oldChars.length, n = newChars.length;
+            var dp = Array(m + 1).fill(null).map(function() { return Array(n + 1).fill(0); });
+            
+            for (var i = 1; i <= m; i++) {
+                for (var j = 1; j <= n; j++) {
+                    if (oldChars[i - 1] === newChars[j - 1]) dp[i][j] = dp[i - 1][j - 1] + 1;
+                    else dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+                }
+            }
+
+            var ops = [], x = m, y = n;
+            while (x > 0 || y > 0) {
+                if (x > 0 && y > 0 && oldChars[x - 1] === newChars[y - 1]) {
+                    ops.push({ type: 'equal', text: oldChars[x - 1] }); x--; y--;
+                } else if (y > 0 && (x === 0 || dp[x][y - 1] >= dp[x - 1][y])) {
+                    ops.push({ type: 'insert', text: newChars[y - 1] }); y--;
+                } else {
+                    ops.push({ type: 'delete', text: oldChars[x - 1] }); x--;
+                }
+            }
+            return ops.reverse();
+        }
+
+        function trimEveryLine(text) {
+            var lines = text.split('\n');
+            for (var i = 0; i < lines.length; i++) {
+                lines[i] = lines[i].replace(/^[ \t\u3000]+|[ \t\u3000]+$/g, '');
+            }
+            return lines.join('\n');
+        }
+
+        function escapeHTML(str) {
+            return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        }
+
+        // 3. 呼叫 Google 翻譯 API (加入 Try-Catch 防止斷線崩潰)
+        let googleText = "";
+        try {
+            const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sourceLang}&tl=${targetLang}&dt=t&q=${encodeURIComponent(origText)}`;
+            const response = await fetch(url);
+            
+            if (!response.ok) {
+                googleText = apiErrorMsg;
+            } else {
+                const data = await response.json();
+                if (data && data[0]) {
+                    for (const item of data[0]) {
+                        if (item[0]) googleText += item[0];
+                    }
+                }
+            }
+        } catch (e) {
+            googleText = apiErrorMsg;
+        }
+
+        // 4. 清理並正規化字串
+        var normOrig = origText.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+        var normMacro = macroText.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+        var normGoogle = googleText.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+        
+        var globalTrimRegex = /^[\s\u3000]+|[\s\u3000]+$/g;
+        var globalOrig = normOrig.replace(globalTrimRegex, '');
+        var globalMacro = normMacro.replace(globalTrimRegex, '');
+        
+        var globalGoogle = (googleText === apiErrorMsg) ? apiErrorMsg : normGoogle.replace(globalTrimRegex, '');
+        
+        var origTrimmed = trimEveryLine(globalOrig);
+        var macroTrimmed = trimEveryLine(globalMacro);
+        var googleTrimmed = (googleText === apiErrorMsg) ? apiErrorMsg : trimEveryLine(globalGoogle);
+        
+        var strippedCount = normOrig.length - origTrimmed.length;
+
+        // 5. 雙階段色彩判定引擎 (完全使用你提供的原始演算法)
+        var diffsOM = computeDiff(origTrimmed, macroTrimmed);
+        var macroColor = new Array(macroTrimmed.length).fill('black');
+        var m_idx = 0;
+        
+        for (var i = 0; i < diffsOM.length; i++) {
+            var dOM = diffsOM[i];
+            if (dOM.type === 'equal') {
+                m_idx += dOM.text.length; 
+            } else if (dOM.type === 'insert') {
+                for (var j = 0; j < dOM.text.length; j++) {
+                    macroColor[m_idx++] = 'blue'; 
+                }
+            }
+        }
+
+        var googleColor = new Array((googleTrimmed === apiErrorMsg) ? 0 : googleTrimmed.length).fill('black');
+        var diffCount = 0, delTemp = 0, insTemp = 0;
+
+        if (googleText !== apiErrorMsg) {
+            var diffsMG = computeDiff(macroTrimmed, googleTrimmed);
+            m_idx = 0;
+            var g_idx = 0;
+
+            for (var i = 0; i < diffsMG.length; i++) {
+                var dMG = diffsMG[i];
+                if (dMG.type === 'equal') {
+                    diffCount += Math.max(delTemp, insTemp);
+                    delTemp = 0; insTemp = 0;
+
+                    for (var j = 0; j < dMG.text.length; j++) {
+                        googleColor[g_idx++] = macroColor[m_idx];
+                        m_idx++;
+                    }
+                } else if (dMG.type === 'insert') {
+                    insTemp += dMG.text.length;
+                    for (var j = 0; j < dMG.text.length; j++) {
+                        googleColor[g_idx++] = 'red';
+                    }
+                } else if (dMG.type === 'delete') {
+                    delTemp += dMG.text.length;
+                    for (var j = 0; j < dMG.text.length; j++) {
+                        macroColor[m_idx++] = 'red';
+                    }
+                }
+            }
+            diffCount += Math.max(delTemp, insTemp);
+        }
+
+        // 6. 組合彩色 HTML 字串
+        function buildColoredHTML(text, colors) {
+            var html = "";
+            var currentColor = null;
+            var currentSpan = "";
+
+            for (var i = 0; i < text.length; i++) {
+                var char = escapeHTML(text[i]);
+                var color = colors[i];
+
+                if (color !== currentColor) {
+                    if (currentColor !== null) {
+                        if (currentColor === 'black') html += currentSpan;
+                        else html += `<span class="c-${currentColor}">${currentSpan}</span>`;
+                    }
+                    currentColor = color;
+                    currentSpan = char;
+                } else {
+                    currentSpan += char;
+                }
+            }
+            if (currentColor !== null) {
+                if (currentColor === 'black') html += currentSpan;
+                else html += `<span class="c-${currentColor}">${currentSpan}</span>`;
+            }
+            return html;
+        }
+
+        var macroHTML = buildColoredHTML(macroTrimmed, macroColor);
+        var googleHTML = (googleText === apiErrorMsg) 
+            ? `<span style="color:#d9534f; font-weight:bold;">${apiErrorMsg}</span>` 
+            : buildColoredHTML(googleTrimmed, googleColor);
+
+        var strippedMsg = "";
+        if (strippedCount > 0) {
+            strippedMsg = _L(
+                `, removed ${strippedCount} leading/trailing spaces`, 
+                `，刪除頭尾空白 ${strippedCount} 個`, 
+                `，删除头尾空白 ${strippedCount} 个`
+            );
+        }
+        
+        var summaryText = _L(
+            `📊 Total selected: ${origText.length} chars. Macro vs Google diff: ${diffCount} chars${strippedMsg}.`,
+            `📊 總共選取 ${origText.length} 字，巨集與 Google 翻譯差異 ${diffCount} 字${strippedMsg}。`,
+            `📊 总共选取 ${origText.length} 字，宏与 Google 翻译差异 ${diffCount} 字${strippedMsg}。`
+        );
+
+        let lblOrig = _L("Original Text", "原文內容", "原文内容");
+        let lblMacro = _L(`Macro Conversion (${modeNames.EN})`, `巨集轉換 (${modeNames.TC})`, `宏转换 (${modeNames.SC})`);
+        let lblGoogle = _L("Reference Translation (Google)", "參考翻譯 (Google)", "参考翻译 (Google)");
+        let pageTitle = _L("Translation Comparison", "翻譯轉換對照", "翻译转换对比");
+
+        let footerHtml = "";
+        if (typeof Simulator_MODE !== "undefined" && Simulator_MODE === false) {
+            let lblFooter = _L(
+                "💡 Tip: Hold Ctrl and click the Macro Button to trigger Simulation Mode.",
+                "💡 提示：按住 Ctrl 鍵並點擊「巨集按鈕」即可觸發模擬比對模式。",
+                "💡 提示：按住 Ctrl 键并点击「宏按钮」即可触发模拟比对模式。"
+                
+            );
+            footerHtml = `<div class="footer-hint">${lblFooter}</div>`;
+        }
+
+        const htmlContent = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset='utf-8'>
+<title>${pageTitle}</title>
+<style>
+  body { 
+      font-family: 'Segoe UI', 'Microsoft JhengHei', sans-serif; 
+      padding: 20px; 
+      background-color: #f7f9fc; 
+      margin: 0;
+  }
+  .sim-header {
+      text-align: center;
+      color: #0275d8;
+      font-weight: bold;
+      font-size: 18px;
+      margin-bottom: 20px;
+      border-bottom: 2px solid #0275d8;
+      padding-bottom: 10px;
+      letter-spacing: 2px;
+  }
+  .block {
+      background: #fff;
+      padding: 15px 20px;
+      margin-bottom: 15px;
+      border-radius: 8px;
+      border-left: 5px solid #ccc;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+  }
+  
+  .block-orig { border-left-color: #af7ac5; }
+  .block-orig .label { color: #8e44ad; }
+  
+  .block-macro { border-left-color: #58d68d; }
+  .block-macro .label { color: #27ae60; }
+  
+  .block-google { border-left-color: #5dade2; }
+  .block-google .label { color: #2980b9; }
+  
+  .header-row {
+      margin-bottom: 8px;
+  }
+  .label {
+      font-size: 14px;
+      letter-spacing: 1px;
+      margin: 0;
+  }
+  
+  pre { 
+      font-family: inherit; 
+      font-size: 16px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      margin: 0;
+      color: #333;
+  }
+  
+  .c-blue { color: #0275d8; font-weight: bold; }
+  .c-red { color: #d9534f; font-weight: bold; border-bottom:1px #f5c2c7 solid;}
+  
+  .summary {
+      margin-top: 20px;
+      font-size: 15px;
+      color: #555;
+      font-weight: bold;
+      text-align: center;
+  }
+  .footer-hint {
+      margin-top: 25px;
+      font-size: 14px;
+      color: #666;
+      background: #eef2f7;
+      padding: 12px;
+      border-radius: 6px;
+      border: 1px dashed #cbd5e0;
+      text-align: center;
+  }
+</style>
+</head>
+<body>
+  <div class="sim-header">${lblSimMode}</div>
+
+  <div class="block block-orig">
+    <div class="header-row">
+        <div class="label">${lblOrig}</div>
+    </div>
+    <pre>${escapeHTML(origTrimmed)}</pre>
+  </div>
+
+  <div class="block block-macro">
+    <div class="header-row">
+        <div class="label">${lblMacro}</div>
+    </div>
+    <pre>${macroHTML}</pre>
+  </div>
+
+  <div class="block block-google">
+    <div class="header-row">
+        <div class="label">${lblGoogle}</div>
+    </div>
+    <pre>${googleHTML}</pre>
+  </div>
+
+  <div class="summary">
+    ${summaryText}
+  </div>
+
+  ${footerHtml}
+</body>
+</html>`;
+
+        // ★ 核心觸發點：顯示畫面
+        openInWebBar(htmlContent);
+
+    } catch (e) {
+        let errTitle = _L("❌ Script error: ", "❌ 腳本錯誤: ", "❌ 脚本错误: ");
+        openInWebBar(`${errTitle}${e.message}`);
+    } finally {
+        shell.KeepRunning = false;
+    }
+
+    // --- [內建函數] 寫入 HTML ---
+    function openInWebBar(htmlString) {
+        if (!htmlString.startsWith("<!DOCTYPE html>")) {
+            htmlString = `<!DOCTYPE html><html><body style="padding:20px;font-family:sans-serif;">${htmlString}</body></html>`;
+        }
+        try {
+            WebBar.SetFocus();
+            
+            let safeHTML = htmlString;
+            try {
+                if (web.window.trustedTypes && web.window.trustedTypes.createPolicy) {
+                    const policy = web.window.trustedTypes.createPolicy('default', { createHTML: s => s });
+                    safeHTML = policy.createHTML(htmlString);
+                }
+            } catch(e) {}
+
+            web.document.open();
+            web.document.write(safeHTML);
+            web.document.close();
+        } catch(err) {
+            OutputBar.Clear();
+            let outErr = _L("WebBar display failed: ", "WebBar 顯示失敗: ", "WebBar 显示失败: ");
+            OutputBar.writeln(outErr + err.message);
+            OutputBar.Visible = true;
+        }
+    }
+}
+
 // --- [##核心邏輯區##] ---
 function main() {
-    // 0. 偵測外部是否開啟模擬模式 (防呆：若未宣告則預設為 false)
-    const isSimulate = (typeof Simulator_MODE !== "undefined" && Simulator_MODE === true);
+    // 0. 偵測外部是否開啟模擬模式 (智慧判定) 與 控制鍵狀態
+    const isShiftPressed = (shell.GetKeyState(0x10) < 0); // 按住 Shift : 僅使用標準詞組與單字，忽略 [區塊 B：自訂擴充覆寫詞庫]、[區塊 D：台灣字形修正 (TWVariants.txt)]、[區塊 E：台灣字形修正例外清單]
+    const isCtrlPressed = (shell.GetKeyState(0x11) < 0); // 按住 Ctrl : 使用模擬轉換模式
+    const isAltPressed = (shell.GetKeyState(0x12) < 0); // 按住 Alt : 忽略 [區塊 D：台灣字形修正 (TWVariants.txt)]
+    const isSimulate = (typeof Simulator_MODE !== "undefined" && Simulator_MODE === true) || isCtrlPressed;
 
     // 1. 動態模式與多國語言設定
     const langId = editor.LangID;
@@ -4473,6 +4858,12 @@ function main() {
             msgModeNameTC = "文字"; msgModeNameSC = "文字"; msgModeNameEN = "Text"; break;
     }
 
+    let currentModeNames = {
+        TC: msgModeNameTC,
+        SC: msgModeNameSC,
+        EN: msgModeNameEN
+    };
+
     const MSG_NO_TEXT = _L("No text selected.", "未選取文字", "未选中文本");
 
     const getMsgProcessing = (p) => _L(
@@ -4482,8 +4873,9 @@ function main() {
     );
 
     const getMsgSuccess = (count, time) => {
-        let suffixTC = (CURRENT_MODE === "S2T" || CURRENT_MODE === "S2TE") ? "已套用台灣字形，" : "";
-        let suffixSC = (CURRENT_MODE === "S2T" || CURRENT_MODE === "S2TE") ? "已套用台湾字形，" : "";
+        let ignoreTW = isAltPressed || isShiftPressed;
+        let suffixTC = ((CURRENT_MODE === "S2T" || CURRENT_MODE === "S2TE") && !ignoreTW) ? "已套用台灣字形，" : "";
+        let suffixSC = ((CURRENT_MODE === "S2T" || CURRENT_MODE === "S2TE") && !ignoreTW) ? "已套用台湾字形，" : "";
 
         if (isSimulate) {
             return _L(
@@ -4553,15 +4945,11 @@ function main() {
         // A. 模擬模式攔截 (200 字元)，選取內容過多會不易比對
         if (isSimulate && txtlen > 200) {
             status = "";
-            if (typeof OutputBar !== "undefined") {
-                OutputBar.Clear();
-                OutputBar.writeln(_L(
+                alert(_L(
                     "⚠️ Selection too large (Character count: " + fmtN(txtlen) + "). Simulation is aborted.",
                     "⚠️ 選取範圍過大 (字元數: " + fmtN(txtlen) + ")，已中止模擬模式。",
                     "⚠️ 选取范围过大 (字符数: " + fmtN(txtlen) + ")，已中止模拟模式。"
                 ));
-                OutputBar.Visible = true; OutputBar.SetFocus();
-            }
             Quit();
         }
         // B. 實際模式極限攔截 (1,500,000,000 字元)
@@ -4578,15 +4966,11 @@ function main() {
         // C. 舊版相容模式：使用座標估算 (僅在模擬模式下攔截)
         if (isSimulate && (selectedLines > 50 || selectedWidth > 200)) {
             status = "";
-            if (typeof OutputBar !== "undefined") {
-                OutputBar.Clear();
-                OutputBar.writeln(_L(
+                alert(_L(
                     "⚠️ Selection too large (Lines: " + fmtN(selectedLines) + ", Width: " + fmtN(selectedWidth) + "). Aborting simulation.",
                     "⚠️ 選取範圍過大 (行數: " + fmtN(selectedLines) + "，寬度: " + fmtN(selectedWidth) + ")，已中止模擬模式。",
                     "⚠️ 选取范围过大 (行数: " + fmtN(selectedLines) + "，宽度: " + fmtN(selectedWidth) + ")，已中止模拟模式。"
                 ));
-                OutputBar.Visible = true; OutputBar.SetFocus();
-            }
             Quit();
         }
     }
@@ -4597,15 +4981,11 @@ function main() {
         
         if (initialText.length > 200) {
             status = "";
-            if (typeof OutputBar !== "undefined") {
-                OutputBar.Clear();
-                OutputBar.writeln(_L(
+                alert(_L(
                     "⚠️ Selected character count is " + fmtN(initialText.length) + ", exceeding the 200-character limit.",
                     "⚠️ 選取字元數為 " + fmtN(initialText.length) + "，已超過模擬模式的 200 字元上限。",
                     "⚠️ 选取字符数为 " + fmtN(initialText.length) + "，已超过模拟模式的 200 字符上限。"
                 ));
-                OutputBar.Visible = true; OutputBar.SetFocus();
-            }
             Quit(); 
         }
     }
@@ -4698,24 +5078,27 @@ function main() {
 
     const exceptionSet = new Set();
     const exceptionMap = new Map();
-    try {
-        const linesEx = rawExceptionData.split("\n");
-        for (let line of linesEx) {
-            let trimmed = line.trim();
-            if (!trimmed || trimmed.startsWith("#")) continue;
-            let parts = trimmed.split("\t");
-            if (parts.length >= 2) {
-                let key = parts[0];
-                let target = parts[1];
-                exceptionSet.add(key);
-                exceptionSet.add(target);
-                exceptionMap.set(key, target);
-                exceptionMap.set(target, target);
+    
+    if (!isShiftPressed) {
+        try {
+            const linesEx = rawExceptionData.split("\n");
+            for (let line of linesEx) {
+                let trimmed = line.trim();
+                if (!trimmed || trimmed.startsWith("#")) continue;
+                let parts = trimmed.split("\t");
+                if (parts.length >= 2) {
+                    let key = parts[0];
+                    let target = parts[1];
+                    exceptionSet.add(key);
+                    exceptionSet.add(target);
+                    exceptionMap.set(key, target);
+                    exceptionMap.set(target, target);
+                }
             }
-        }
-    } catch(e) {}
+        } catch(e) {}
+    }
 
-    const needVariants = (CURRENT_MODE === "S2T" || CURRENT_MODE === "S2TE");
+    const needVariants = (CURRENT_MODE === "S2T" || CURRENT_MODE === "S2TE") && !isAltPressed && !isShiftPressed;
     
     if (needVariants) {
         try {
@@ -4762,8 +5145,10 @@ function main() {
         }
     };
 
-    try { parseMainData(rawExceptionData); } catch(e){}
-    try { parseMainData(rawPhraseExpandedData); } catch(e){}
+    if (!isShiftPressed) {
+        try { parseMainData(rawExceptionData); } catch(e){}
+        try { parseMainData(rawPhraseExpandedData); } catch(e){}
+    }
     try { parseMainData(rawPhraseData); } catch(e){}
     
     if (CURRENT_MODE !== "S2TWP" && CURRENT_MODE !== "TW2SP") {
@@ -5292,14 +5677,14 @@ function main() {
     if (totalReplaced > 0) {
         status = getMsgSuccess(totalReplaced, elapsedSeconds); 
         
-        // 模擬模式下：啟動比對引擎輸出至 OutputBar
+        // 模擬模式下：啟動比對引擎輸出至 WebBar
         if (isSimulate && initialText) {
             let macroResult = "";
             if (initialText.length <= 200) {
                 macroResult = doConvert(initialText).text;
             }
             if (typeof compareWithGoogle === "function") {
-                compareWithGoogle(initialText, macroResult);
+                compareWithGoogle(initialText, macroResult, currentModeNames);
             }
         }
     } else {
@@ -5309,18 +5694,13 @@ function main() {
             `ℹ️ 内容未包含需要变更的文字，未执行 ${msgModeNameSC} 转换 (耗时 ${elapsedSeconds} 秒)`
         );
         
-        // 處理無須轉換時的 OutputBar 顯示邏輯
+        // 處理無須轉換時的顯示邏輯
         if (isSimulate && initialText) {
-            if (typeof OutputBar !== "undefined") {
-                OutputBar.Clear();
-                OutputBar.write(_L(
-                    `ℹ️ No text requiring changes was found, no ${msgModeNameEN} conversion was made, online translation comparison were skipped.`,
-                    `ℹ️ 內容未包含需要變更的文字，未執行 ${msgModeNameTC} 轉換，已略過線上翻譯比對`,
-                    `ℹ️ 内容未包含需要变更的文字，未执行 ${msgModeNameSC} 转换，已略过在线翻译对比。`
+                alert(_L(
+                    `ℹ️ No text requiring changes was found, no ${msgModeNameEN} simulation was made, online translation comparison were skipped.`,
+                    `ℹ️ 內容未包含需要變更的文字，未執行 ${msgModeNameTC} 模擬，已略過線上翻譯比對。`,
+                    `ℹ️ 内容未包含需要变更的文字，未执行 ${msgModeNameSC} 模拟，已略过在线翻译对比。`
                 ));
-                OutputBar.Visible = true;
-                OutputBar.SetFocus();
-            }
         }
     }
 }
