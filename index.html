@@ -22,6 +22,10 @@
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: var(--bg-color); color: var(--text-color); margin: 0; padding: 20px; display: flex; flex-direction: column; height: 100vh; box-sizing: border-box; }
         
         .header { background: var(--panel-bg); padding: 15px 20px; border-radius: var(--border-radius); box-shadow: 0 4px 15px rgba(0,0,0,0.03); margin-bottom: 15px; position: relative; }
+        
+        /* 新增：主標題樣式 */
+        .main-title { margin: 0 0 15px 0; font-size: 22px; color: #2D5A54; letter-spacing: 0.5px; border-bottom: 1px solid #F0F0F0; padding-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+        
         .toolbar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px; margin-bottom: 12px; }
         .controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
         
@@ -41,7 +45,6 @@
         .options-bar label { display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; color: #555; font-weight: 500; }
         .options-bar input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; accent-color: #83C5BE; }
 
-        /* 右上角說明按鈕 */
         .btn-info { position: absolute; top: 15px; right: 20px; background: transparent; color: #888; border: none; font-size: 20px; padding: 0; cursor: pointer; transition: color 0.2s; box-shadow: none; border-radius: 50%; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; }
         .btn-info:hover { color: #0275d8; transform: scale(1.1); box-shadow: none; background: #F0F4F8; }
 
@@ -51,7 +54,9 @@
         
         .io-header { display: flex; justify-content: space-between; align-items: center; padding: 10px 15px; background: #F8F9FA; border-bottom: 1px solid #EBEBEB; }
         .io-title { font-size: 14px; font-weight: bold; color: #666; display: flex; align-items: center; gap: 5px; }
-        .btn-copy { background: transparent; color: #666; border: 1px solid #D1D1D1; padding: 4px 10px; font-size: 12px; font-weight: bold; border-radius: 6px; }
+        
+        /* 複製按鈕基礎樣式 */
+        .btn-copy { background: transparent; color: #666; border: 1px solid #D1D1D1; padding: 4px 10px; font-size: 12px; font-weight: bold; border-radius: 6px; display: flex; align-items: center; gap: 4px; }
         .btn-copy:hover { background: #E9ECEF; color: #333; }
         .btn-copy.copied { background: #D4EDDA; color: #155724; border-color: #C3E6CB; }
 
@@ -64,7 +69,6 @@
         .status-bar { margin-top: 15px; padding: 12px 20px; background: #3B4252; color: #A3BE8C; font-weight: bold; border-radius: 8px; font-size: 14px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); letter-spacing: 0.5px; transition: opacity 0.3s ease; }
         .status-bar.error { color: #BF616A; }
 
-        /* 說明彈窗 Modal 樣式 */
         .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.4); z-index: 1000; justify-content: center; align-items: center; opacity: 0; transition: opacity 0.3s; }
         .modal-overlay.active { display: flex; opacity: 1; }
         .modal-content { background: white; width: 550px; max-width: 90%; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); overflow: hidden; transform: translateY(-20px); transition: transform 0.3s; }
@@ -82,11 +86,21 @@
         .modal-body .code-block { background: #F1F3F5; padding: 12px; border-radius: 6px; font-family: monospace; font-size: 13px; margin-top: 15px; border-left: 4px solid #83C5BE;}
         .tagline { font-weight: bold; color: #2D5A54; font-size: 15px; text-align: center; margin-top: 30px; margin-bottom: 5px;}
         .dev-by { text-align: center; font-style: italic; font-size: 13px; color: #888; margin-top: 0; margin-bottom: 0;}
+
+        /* 新增：手機直式畫面響應式設定 (RWD) */
+        @media screen and (max-width: 600px) {
+            .main-area { flex-direction: column; }
+            .main-title { font-size: 18px; }
+            .copy-text { display: none; } /* 隱藏複製文字 */
+            .btn-copy { padding: 6px 12px; font-size: 14px; justify-content: center; } /* 微調按鈕比例 */
+        }
     </style>
 </head>
 <body>
 
 <div class="header">
+    <h1 class="main-title" data-i18n="mainTitle">EmEditor OpenCC Macro 繁簡轉換</h1>
+    
     <div class="toolbar">
         <div class="controls">
             <input type="file" id="macroLoader" accept=".jsee" style="display:none">
@@ -114,7 +128,9 @@
     <div class="io-box">
         <div class="io-header">
             <span class="io-title" data-i18n="titleInput">📝 原始文字</span>
-            <button class="btn-copy" onclick="copyText('inputText', this)" data-i18n="btnCopy">📋 複製</button>
+            <button class="btn-copy" onclick="copyText('inputText', this)">
+                <span class="copy-icon">📋</span> <span class="copy-text" data-i18n="btnCopy">複製</span>
+            </button>
         </div>
         <textarea id="inputText" data-i18n-placeholder="placeholderInput" placeholder="請在此輸入或貼上原始文字..."></textarea>
     </div>
@@ -122,7 +138,9 @@
     <div class="io-box">
         <div class="io-header">
             <span class="io-title" data-i18n="titleOutput">✨ 轉換結果</span>
-            <button class="btn-copy" id="btnCopyRight" onclick="copyText('outputText', this)" data-i18n="btnCopy">📋 複製</button>
+            <button class="btn-copy" id="btnCopyRight" onclick="copyText('outputText', this)">
+                <span class="copy-icon">📋</span> <span class="copy-text" data-i18n="btnCopy">複製</span>
+            </button>
         </div>
         <textarea id="outputText" data-i18n-placeholder="placeholderOutput" placeholder="轉換結果將顯示於此..." readonly></textarea>
         <iframe id="outputFrame"></iframe>
@@ -148,11 +166,12 @@
 // ==========================================
 const i18nDict = {
     'zh-TW': {
+        mainTitle: "EmEditor OpenCC Macro 繁簡轉換",
         btnLocal: "📂 載入本地 .jsee", btnS2T: "⚡ 簡轉繁", btnT2S: "⚡ 繁轉簡", btnS2TWP: "陸 ➔ 台", btnTW2SP: "台 ➔ 陸", btnS2TE: "簡繁擴充",
         chkSimulate: "🔍 啟用模擬比對 (與 Google 翻譯比對)", chkIgnoreTW: "🚫 忽略台灣字形 (僅標準繁簡)", chkPure: "🧹 純淨模式 (停用語法邏輯與擴充)",
-        titleInput: "📝 原始文字", titleOutput: "✨ 轉換結果", btnCopy: "📋 複製", aboutBtn: "關於本巨集",
+        titleInput: "📝 原始文字", titleOutput: "✨ 轉換結果", btnCopy: "複製", aboutBtn: "關於本巨集",
         placeholderInput: "請在此輸入或貼上原始文字...", placeholderOutput: "轉換結果將顯示於此...",
-        statusReady: "ℹ️ 就緒。請輸入或貼上文字並選擇轉換模式。", msgNoText: "⚠️ 沒有文字可以複製！", msgCopied: "✅ 已複製", msgCopyFail: "複製失敗，請全選後手動複製 (Ctrl+C)！",
+        statusReady: "ℹ️ 就緒。請輸入或貼上文字並選擇轉換模式。", msgNoText: "⚠️ 沒有文字可以複製！", msgCopied: "已複製", msgCopyFail: "複製失敗，請全選後手動複製 (Ctrl+C)！",
         errLoadLocal: "❌ 讀取失敗，找不到檔案。若您直接在電腦雙擊 HTML，請改用最左側的「📂 載入本地 .jsee」按鈕。",
         modalHTML: `
             <p>本網頁用來模擬在 <strong>EmEditor 環境</strong>下的轉換邏輯。這是一個專為 EmEditor 打造的高效能繁簡轉換巨集，核心轉換邏輯與詞庫基於強大的開源專案 OpenCC。</p>
@@ -172,11 +191,12 @@ const i18nDict = {
             <div class="dev-by">Developed by skyuns</div>`
     },
     'zh-CN': {
+        mainTitle: "EmEditor OpenCC Macro 繁简转换",
         btnLocal: "📂 载入本地 .jsee", btnS2T: "⚡ 简转繁", btnT2S: "⚡ 繁转简", btnS2TWP: "陆 ➔ 台", btnTW2SP: "台 ➔ 陆", btnS2TE: "简繁扩充",
         chkSimulate: "🔍 启用模拟比对 (与 Google 翻译比对)", chkIgnoreTW: "🚫 忽略台湾字形 (仅标准繁简)", chkPure: "🧹 纯净模式 (停用语法逻辑与扩充)",
-        titleInput: "📝 原始文本", titleOutput: "✨ 转换结果", btnCopy: "📋 复制", aboutBtn: "关于本宏",
+        titleInput: "📝 原始文本", titleOutput: "✨ 转换结果", btnCopy: "复制", aboutBtn: "关于本宏",
         placeholderInput: "请在此输入或粘贴原始文本...", placeholderOutput: "转换结果将显示于此...",
-        statusReady: "ℹ️ 就绪。请输入或粘贴文本并选择转换模式。", msgNoText: "⚠️ 没有文本可以复制！", msgCopied: "✅ 已复制", msgCopyFail: "复制失败，请全选后手动复制 (Ctrl+C)！",
+        statusReady: "ℹ️ 就绪。请输入或粘贴文本并选择转换模式。", msgNoText: "⚠️ 没有文本可以复制！", msgCopied: "已复制", msgCopyFail: "复制失败，请全选后手动复制 (Ctrl+C)！",
         errLoadLocal: "❌ 读取失败。若您直接在电脑双击 HTML，请改用最左侧的「📂 载入本地 .jsee」按钮。",
         modalHTML: `
             <p>本网页用来模拟在 <strong>EmEditor 环境</strong>下的转换逻辑。这是一个专为 EmEditor 打造的高效能繁简转换宏，核心转换逻辑与词库基于强大的开源项目 OpenCC。</p>
@@ -196,11 +216,12 @@ const i18nDict = {
             <div class="dev-by">Developed by skyuns</div>`
     },
     'en': {
+        mainTitle: "EmEditor OpenCC Macro Conversion",
         btnLocal: "📂 Load Local .jsee", btnS2T: "⚡ S2T", btnT2S: "⚡ T2S", btnS2TWP: "CN ➔ TW", btnTW2SP: "TW ➔ CN", btnS2TE: "S2T Expanded",
         chkSimulate: "🔍 Simulation Mode (Compare w/ Google)", chkIgnoreTW: "🚫 Ignore TW Variants", chkPure: "🧹 Pure Mode (Disable Context Logic)",
-        titleInput: "📝 Original Text", titleOutput: "✨ Result", btnCopy: "📋 Copy", aboutBtn: "About Macro",
+        titleInput: "📝 Original Text", titleOutput: "✨ Result", btnCopy: "Copy", aboutBtn: "About Macro",
         placeholderInput: "Type or paste your text here...", placeholderOutput: "Conversion result will appear here...",
-        statusReady: "ℹ️ Ready. Paste text and select a conversion mode.", msgNoText: "⚠️ No text to copy!", msgCopied: "✅ Copied", msgCopyFail: "Copy failed, please select all and copy manually (Ctrl+C)!",
+        statusReady: "ℹ️ Ready. Paste text and select a conversion mode.", msgNoText: "⚠️ No text to copy!", msgCopied: "Copied", msgCopyFail: "Copy failed, please select all and copy manually (Ctrl+C)!",
         errLoadLocal: "❌ Load failed. If opening HTML locally, please use the purple 'Load Local .jsee' button.",
         modalHTML: `
             <p>This page simulates the conversion logic within the <strong>EmEditor environment</strong>. It is a high-performance Chinese conversion macro designed for EmEditor, based on the OpenCC project.</p>
@@ -221,7 +242,7 @@ const i18nDict = {
     }
 };
 
-let currentLang = 'en'; // Default
+let currentLang = 'en'; 
 const sysLang = navigator.language || navigator.userLanguage;
 if (sysLang.startsWith('zh')) {
     currentLang = (sysLang.includes('TW') || sysLang.includes('HK') || sysLang.includes('MO') || sysLang === 'zh-Hant') ? 'zh-TW' : 'zh-CN';
@@ -261,7 +282,7 @@ function toggleModal(show) {
 }
 
 // ==========================================
-// 2. 一鍵複製功能
+// 2. 一鍵複製功能 (升級版：支援響應式結構)
 // ==========================================
 async function copyText(elementId, btnElement) {
     const text = document.getElementById(elementId).value;
@@ -272,11 +293,21 @@ async function copyText(elementId, btnElement) {
     }
     try {
         await navigator.clipboard.writeText(text);
-        const originalText = btnElement.innerText;
-        btnElement.innerText = T('msgCopied');
+        
+        // 分別取得圖示與文字的 Span，只改變內容而不破壞結構
+        const iconSpan = btnElement.querySelector('.copy-icon');
+        const textSpan = btnElement.querySelector('.copy-text');
+        
+        const originalIcon = iconSpan.innerText;
+        const originalText = textSpan.innerText;
+        
+        iconSpan.innerText = "✅";
+        textSpan.innerText = T('msgCopied');
         btnElement.classList.add("copied");
+        
         setTimeout(() => {
-            btnElement.innerText = originalText;
+            iconSpan.innerText = originalIcon;
+            textSpan.innerText = originalText;
             btnElement.classList.remove("copied");
         }, 2000);
     } catch (err) { alert(T('msgCopyFail')); }
@@ -321,7 +352,7 @@ function resetOutputView() {
     document.getElementById('outputText').style.display = 'block';
     document.getElementById('outputFrame').style.display = 'none';
     document.getElementById('outputText').value = "";
-    document.getElementById('btnCopyRight').style.display = 'block';
+    document.getElementById('btnCopyRight').style.display = 'flex'; // 恢復顯示複製按鈕 (flex 確保圖示對齊)
 }
 
 const mockDocument = {
