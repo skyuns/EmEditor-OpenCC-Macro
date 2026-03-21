@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EmEditor-OpenCC-Macro Web Engine v0.26</title>
+    <style>
+        /* 溫潤清爽色系與現代化 UI 設定 */
+        :root {
+            --bg-color: #F9F7F3;          
+            --panel-bg: #FFFFFF;
+            --text-color: #4A4A4A;
+            --btn-local: #EADCE0;         
+            --btn-s2t: #DDF0ED;           
+            --btn-t2s: #FCECE6;           
+            --btn-s2twp: #E6F3FF;         
+            --btn-tw2sp: #E2F5EE;         
+            --btn-s2te: #FFF6E0;          
+            --border-radius: 12px;
+        }
+
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: var(--bg-color); color: var(--text-color); margin: 0; padding: 20px; display: flex; flex-direction: column; height: 100vh; box-sizing: border-box; }
+        
+        .header { background: var(--panel-bg); padding: 15px 20px; border-radius: var(--border-radius); box-shadow: 0 4px 15px rgba(0,0,0,0.03); margin-bottom: 15px; }
+        .toolbar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px; margin-bottom: 12px; }
+        .controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+        
+        button { padding: 9px 18px; font-size: 14px; font-weight: bold; cursor: pointer; border: 1px solid transparent; border-radius: 8px; transition: all 0.2s ease; letter-spacing: 0.5px; }
+        button:hover { filter: brightness(0.96); box-shadow: 0 3px 6px rgba(0,0,0,0.08); transform: translateY(-1px); border-color: rgba(0,0,0,0.05); }
+        button:active { transform: translateY(1px); box-shadow: none; }
+        
+        .btn-local { background: var(--btn-local); color: #6A4B55; }
+        .btn-s2t { background: var(--btn-s2t); color: #2D5A54; }
+        .btn-t2s { background: var(--btn-t2s); color: #8A4A33; }
+        .btn-s2twp { background: var(--btn-s2twp); color: #325A82; }
+        .btn-tw2sp { background: var(--btn-tw2sp); color: #326B57; }
+        .btn-s2te { background: var(--btn-s2te); color: #7A601A; }
+        .divider { width: 1px; height: 25px; background: #E0E0E0; margin: 0 5px; }
+
+        .options-bar { display: flex; gap: 20px; background: #F8F9FA; padding: 10px 15px; border-radius: 8px; font-size: 14px; border: 1px solid #E9ECEF; }
+        .options-bar label { display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; color: #555; font-weight: 500; }
+        .options-bar input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; accent-color: #83C5BE; }
+
+        .main-area { display: flex; gap: 20px; flex: 1; min-height: 0; }
+        .io-box { flex: 1; display: flex; flex-direction: column; position: relative; background: var(--panel-bg); border-radius: var(--border-radius); box-shadow: 0 2px 8px rgba(0,0,0,0.02); overflow: hidden; border: 2px solid #EBEBEB; transition: border-color 0.2s; }
+        .io-box:focus-within { border-color: #A2D2FF; }
+        
+        /* 文字區標題與複製按鈕 */
+        .io-header { display: flex; justify-content: space-between; align-items: center; padding: 10px 15px; background: #F8F9FA; border-bottom: 1px solid #EBEBEB; }
+        .io-title { font-size: 14px; font-weight: bold; color: #666; display: flex; align-items: center; gap: 5px; }
+        .btn-copy { background: transparent; color: #666; border: 1px solid #D1D1D1; padding: 4px 10px; font-size: 12px; font-weight: bold; border-radius: 6px; }
+        .btn-copy:hover { background: #E9ECEF; color: #333; }
+        .btn-copy.copied { background: #D4EDDA; color: #155724; border-color: #C3E6CB; }
+
+        textarea { flex: 1; padding: 15px; font-size: 16px; font-family: 'Consolas', 'Microsoft JhengHei', monospace; border: none; resize: none; box-shadow: inset 0 2px 4px rgba(0,0,0,0.01); line-height: 1.6; }
+        textarea:focus { outline: none; }
+        #outputText { background-color: #FAFAFA; }
+
+        #outputFrame { display: none; width: 100%; height: 100%; border: none; background: white; }
+
+        .status-bar { margin-top: 15px; padding: 12px 20px; background: #3B4252; color: #A3BE8C; font-weight: bold; border-radius: 8px; font-size: 14px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); letter-spacing: 0.5px; transition: opacity 0.3s ease; }
+        .status-bar.error { color: #BF616A; }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <div class="toolbar">
+        <div class="controls">
+            <input type="file" id="macroLoader" accept=".jsee" style="display:none">
+            <button id="btnLocalLoad" class="btn-local" onclick="document.getElementById('macroLoader').click()">📂 載入本地 .jsee</button>
+            <div id="localDivider" class="divider"></div>
+
+            <button class="btn-s2t" onclick="loadAndRun('S2T.jsee')">⚡ 簡轉繁</button>
+            <button class="btn-t2s" onclick="loadAndRun('T2S.jsee')">⚡ 繁轉簡</button>
+            <button class="btn-s2twp" onclick="loadAndRun('S2TWP.jsee')">陸 ➔ 台</button>
+            <button class="btn-tw2sp" onclick="loadAndRun('TW2SP.jsee')">台 ➔ 陸</button>
+            <button class="btn-s2te" onclick="loadAndRun('S2TE.jsee')">簡繁擴充</button>
+        </div>
+    </div>
+    
+    <div class="options-bar">
+        <label title="等同於原本按住 Ctrl 鍵"><input type="checkbox" id="chkSimulate"> 🔍 啟用模擬比對 (與 Google 翻譯比對)</label>
+        <label title="等同於原本按住 Alt 鍵"><input type="checkbox" id="chkIgnoreTW"> 🚫 忽略台灣字形 (僅標準繁簡)</label>
+        <label title="等同於原本按住 Shift 鍵"><input type="checkbox" id="chkPure"> 🧹 純淨模式 (停用語法邏輯與擴充)</label>
+    </div>
+</div>
+
+<div class="main-area">
+    <div class="io-box">
+        <div class="io-header">
+            <span class="io-title">📝 原始文字</span>
+            <button class="btn-copy" onclick="copyText('inputText', this)">📋 複製</button>
+        </div>
+        <textarea id="inputText" placeholder="請在此輸入或貼上原始文字..."></textarea>
+    </div>
+    
+    <div class="io-box">
+        <div class="io-header">
+            <span class="io-title">✨ 轉換結果</span>
+            <button class="btn-copy" id="btnCopyRight" onclick="copyText('outputText', this)">📋 複製</button>
+        </div>
+        <textarea id="outputText" placeholder="轉換結果將顯示於此..." readonly></textarea>
+        <iframe id="outputFrame"></iframe>
+    </div>
+</div>
+
+<div class="status-bar" id="statusBar">ℹ️ 就緒。請輸入或貼上文字並選擇轉換模式。</div>
+
+<script>
+// ==========================================
+// 0. 環境智慧偵測與 UI 初始化
+// ==========================================
+document.addEventListener("DOMContentLoaded", () => {
+    // 若不是透過 file:/// 開啟（代表在 GitHub Pages 或伺服器環境）
+    if (window.location.protocol !== "file:") {
+        document.getElementById('btnLocalLoad').style.display = 'none';
+        document.getElementById('localDivider').style.display = 'none';
+    }
+});
+
+// ==========================================
+// 1. 一鍵複製功能 (支援動態 UI 回饋)
+// ==========================================
+async function copyText(elementId, btnElement) {
+    const text = document.getElementById(elementId).value;
+    if (!text) {
+        updateStatus("⚠️ 沒有文字可以複製！", true);
+        setTimeout(() => updateStatus("ℹ️ 就緒。請輸入或貼上文字並選擇轉換模式。"), 2000);
+        return;
+    }
+    
+    try {
+        await navigator.clipboard.writeText(text);
+        
+        // 按鈕視覺回饋
+        const originalText = btnElement.innerText;
+        btnElement.innerText = "✅ 已複製";
+        btnElement.classList.add("copied");
+        
+        // 2秒後恢復原狀
+        setTimeout(() => {
+            btnElement.innerText = originalText;
+            btnElement.classList.remove("copied");
+        }, 2000);
+        
+    } catch (err) {
+        alert("複製失敗，請全選後手動複製 (Ctrl+C)！");
+    }
+}
+
+// ==========================================
+// 2. UI 狀態與防呆清理
+// ==========================================
+function updateStatus(msg, isError = false) {
+    const bar = document.getElementById('statusBar');
+    bar.innerText = msg;
+    bar.className = isError ? "status-bar error" : "status-bar";
+}
+
+// ==========================================
+// 3. EmEditor 虛擬環境建構 (Mocking)
+// ==========================================
+class MacroQuitException extends Error { constructor() { super("MACRO_QUIT"); } }
+
+const eePosLogical = 1, eePosCell = 4, eeShowTipHide = 0;
+let Redraw = true, CombineHistory = false;
+
+Object.defineProperty(window, 'status', {
+    get: function() { return this._macroStatus || ""; },
+    set: function(val) { 
+        this._macroStatus = val; 
+        updateStatus(val); 
+    },
+    configurable: true
+});
+
+const shell = {
+    GetKeyState: (code) => {
+        if (code === 0x10) return document.getElementById('chkPure').checked ? -1 : 0;
+        if (code === 0x11) return document.getElementById('chkSimulate').checked ? -1 : 0;
+        if (code === 0x12) return document.getElementById('chkIgnoreTW').checked ? -1 : 0;
+        return 0;
+    },
+    KeepRunning: false,
+    SendKeys: () => {}
+};
+
+const editor = { LangID: 1028, ExecuteCommandByID: () => {} };
+
+function resetOutputView() {
+    document.getElementById('outputText').style.display = 'block';
+    document.getElementById('outputFrame').style.display = 'none';
+    document.getElementById('outputText').value = "";
+    document.getElementById('btnCopyRight').style.display = 'block'; // 恢復顯示複製按鈕
+}
+
+const mockDocument = {
+    selection: {
+        get Text() { return document.getElementById('inputText').value; },
+        set Text(val) {
+            resetOutputView();
+            document.getElementById('outputText').value = val;
+        },
+        get TextLength() { return this.Text.length; },
+        get IsEmpty() { return this.Text.length === 0; },
+        SelectWord: () => {}, Mode: 1, Count: 1,
+        GetTopPointY: () => 1, GetTopPointX: () => 1,
+        GetBottomPointY: () => 1, GetBottomPointX: () => 1,
+        SetActivePoint: () => {}, SetAnchorPoint: () => {}
+    },
+    filters: { Count: 0 }, Csv: null,
+    GetLine: () => "", GetCell: () => "", SetCell: () => {}
+};
+
+const WebBar = {
+    Visible: true, SetFocus: () => {}, Open: (url) => {} 
+};
+
+const web = {
+    window: window,
+    document: {
+        open: () => {},
+        write: (html) => {
+            document.getElementById('outputText').style.display = 'none';
+            document.getElementById('btnCopyRight').style.display = 'none'; // 模擬比對畫面不支援文字複製，隱藏按鈕
+            const frame = document.getElementById('outputFrame');
+            frame.style.display = 'block';
+            frame.contentWindow.document.open();
+            frame.contentWindow.document.write(html);
+            frame.contentWindow.document.close();
+        },
+        close: () => {}
+    }
+};
+
+const OutputBar = { Clear: () => {}, writeln: console.log, Visible: false };
+
+// ==========================================
+// 4. 核心載入與執行引擎
+// ==========================================
+function executeMacroCode(code, filename) {
+    resetOutputView();
+    code = code.replace(/^#.*/gm, function(match) { return '// ' + match; });
+
+    updateStatus(`⏳ 解析引擎啟動中，執行 ${filename || '巨集'}...`);
+
+    const macroRunner = new Function(
+        'document', 'shell', 'editor', 'WebBar', 'OutputBar', 'web',
+        'eePosLogical', 'eePosCell', 'eeShowTipHide', 'Redraw', 'CombineHistory',
+        'ShowTip', 'Quit', 'alert',
+        code
+    );
+
+    const fakeShowTip = (msg) => { if (msg) updateStatus(msg); };
+    const fakeQuit = () => { throw new MacroQuitException(); };
+    const fakeAlert = (msg) => { alert("巨集提示:\n" + msg); };
+
+    try {
+        macroRunner(
+            mockDocument, shell, editor, WebBar, OutputBar, web,
+            eePosLogical, eePosCell, eeShowTipHide, Redraw, CombineHistory,
+            fakeShowTip, fakeQuit, fakeAlert
+        );
+    } catch (error) {
+        if (!(error instanceof MacroQuitException)) {
+            console.error(error);
+            updateStatus(`❌ 執行發生錯誤: ${error.message}`, true);
+        }
+    }
+}
+
+document.getElementById('macroLoader').addEventListener('change', function(e) {
+    let file = e.target.files[0];
+    if (!file) return;
+    let reader = new FileReader();
+    reader.onload = function(event) {
+        executeMacroCode(event.target.result, file.name);
+        e.target.value = ''; 
+    };
+    reader.readAsText(file);
+});
+
+async function loadAndRun(filename) {
+    updateStatus(`⏳ 讀取腳本 ${filename} ...`);
+    try {
+        const response = await fetch(filename);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        let code = await response.text();
+        executeMacroCode(code, filename);
+    } catch (error) {
+        updateStatus(`❌ 讀取失敗，找不到檔案。若您直接在電腦雙擊 HTML，請改用最左側的「📂 載入本地 .jsee」按鈕。`, true);
+    }
+}
+</script>
+
+</body>
+</html>
