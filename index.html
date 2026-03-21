@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>EmEditor-OpenCC-Macro Web Engine</title>
     <style>
-        /* 溫潤清爽色系與現代化 UI 設定 */
         :root {
             --bg-color: #F9F7F3;          
             --panel-bg: #FFFFFF;
@@ -22,8 +21,6 @@
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: var(--bg-color); color: var(--text-color); margin: 0; padding: 20px; display: flex; flex-direction: column; height: 100vh; box-sizing: border-box; }
         
         .header { background: var(--panel-bg); padding: 15px 20px; border-radius: var(--border-radius); box-shadow: 0 4px 15px rgba(0,0,0,0.03); margin-bottom: 15px; position: relative; }
-        
-        /* 新增：主標題樣式 */
         .main-title { margin: 0 0 15px 0; font-size: 22px; color: #2D5A54; letter-spacing: 0.5px; border-bottom: 1px solid #F0F0F0; padding-bottom: 10px; display: flex; align-items: center; gap: 8px; }
         
         .toolbar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px; margin-bottom: 12px; }
@@ -55,14 +52,16 @@
         .io-header { display: flex; justify-content: space-between; align-items: center; padding: 10px 15px; background: #F8F9FA; border-bottom: 1px solid #EBEBEB; }
         .io-title { font-size: 14px; font-weight: bold; color: #666; display: flex; align-items: center; gap: 5px; }
         
-        /* 複製按鈕基礎樣式 */
-        .btn-copy { background: transparent; color: #666; border: 1px solid #D1D1D1; padding: 4px 10px; font-size: 12px; font-weight: bold; border-radius: 6px; display: flex; align-items: center; gap: 4px; }
-        .btn-copy:hover { background: #E9ECEF; color: #333; }
-        .btn-copy.copied { background: #D4EDDA; color: #155724; border-color: #C3E6CB; }
+        .btn-action-group { display: flex; gap: 8px; }
+        .btn-mini { background: transparent; color: #666; border: 1px solid #D1D1D1; padding: 4px 10px; font-size: 12px; font-weight: bold; border-radius: 6px; display: flex; align-items: center; gap: 4px; }
+        .btn-mini:hover { background: #E9ECEF; color: #333; }
+        .btn-mini.active { background: #E6F3FF; border-color: #A2D2FF; color: #0275d8; }
+        .btn-mini.copied { background: #D4EDDA; color: #155724; border-color: #C3E6CB; }
 
-        textarea { flex: 1; padding: 15px; font-size: 16px; font-family: 'Consolas', 'Microsoft JhengHei', monospace; border: none; resize: none; box-shadow: inset 0 2px 4px rgba(0,0,0,0.01); line-height: 1.6; }
+        textarea, #diffViewer { flex: 1; padding: 15px; font-size: 16px; font-family: 'Consolas', 'Microsoft JhengHei', monospace; border: none; resize: none; box-shadow: inset 0 2px 4px rgba(0,0,0,0.01); line-height: 1.6; }
         textarea:focus { outline: none; }
-        #outputText { background-color: #FAFAFA; }
+        #outputText, #diffViewer { background-color: #FAFAFA; }
+        #diffViewer { overflow-y: auto; display: none; } /* 預設隱藏差異面板 */
 
         #outputFrame { display: none; width: 100%; height: 100%; border: none; background: white; }
 
@@ -87,12 +86,11 @@
         .tagline { font-weight: bold; color: #2D5A54; font-size: 15px; text-align: center; margin-top: 30px; margin-bottom: 5px;}
         .dev-by { text-align: center; font-style: italic; font-size: 13px; color: #888; margin-top: 0; margin-bottom: 0;}
 
-        /* 新增：手機直式畫面響應式設定 (RWD) */
         @media screen and (max-width: 600px) {
             .main-area { flex-direction: column; }
             .main-title { font-size: 18px; }
-            .copy-text { display: none; } /* 隱藏複製文字 */
-            .btn-copy { padding: 6px 12px; font-size: 14px; justify-content: center; } /* 微調按鈕比例 */
+            .btn-mini-text { display: none; }
+            .btn-mini { padding: 6px 12px; font-size: 14px; justify-content: center; }
         }
     </style>
 </head>
@@ -128,9 +126,14 @@
     <div class="io-box">
         <div class="io-header">
             <span class="io-title" data-i18n="titleInput">📝 原始文字</span>
-            <button class="btn-copy" onclick="copyText('inputText', this)">
-                <span class="copy-icon">📋</span> <span class="copy-text" data-i18n="btnCopy">複製</span>
-            </button>
+            <div class="btn-action-group">
+                <button class="btn-mini" onclick="clearInput()">
+                    <span class="btn-mini-icon">🗑️</span> <span class="btn-mini-text" data-i18n="btnClear">清除</span>
+                </button>
+                <button class="btn-mini" onclick="copyText('inputText', this)">
+                    <span class="btn-mini-icon">📋</span> <span class="btn-mini-text" data-i18n="btnCopy">複製</span>
+                </button>
+            </div>
         </div>
         <textarea id="inputText" data-i18n-placeholder="placeholderInput" placeholder="請在此輸入或貼上原始文字..."></textarea>
     </div>
@@ -138,11 +141,17 @@
     <div class="io-box">
         <div class="io-header">
             <span class="io-title" data-i18n="titleOutput">✨ 轉換結果</span>
-            <button class="btn-copy" id="btnCopyRight" onclick="copyText('outputText', this)">
-                <span class="copy-icon">📋</span> <span class="copy-text" data-i18n="btnCopy">複製</span>
-            </button>
+            <div class="btn-action-group">
+                <button class="btn-mini" id="btnToggleDiff" onclick="toggleDiffMode()" style="display:none;">
+                    <span class="btn-mini-icon">👀</span> <span class="btn-mini-text" data-i18n="btnDiff">差異</span>
+                </button>
+                <button class="btn-mini" id="btnCopyRight" onclick="copyText('outputText', this)">
+                    <span class="btn-mini-icon">📋</span> <span class="btn-mini-text" data-i18n="btnCopy">複製</span>
+                </button>
+            </div>
         </div>
         <textarea id="outputText" data-i18n-placeholder="placeholderOutput" placeholder="轉換結果將顯示於此..." readonly></textarea>
+        <div id="diffViewer"></div>
         <iframe id="outputFrame"></iframe>
     </div>
 </div>
@@ -155,8 +164,7 @@
             <h3>About EmEditor OpenCC Macro</h3>
             <button class="modal-close" onclick="toggleModal(false)">✖</button>
         </div>
-        <div class="modal-body" id="modalBody">
-            </div>
+        <div class="modal-body" id="modalBody"></div>
     </div>
 </div>
 
@@ -169,10 +177,10 @@ const i18nDict = {
         mainTitle: "EmEditor OpenCC 繁簡轉換",
         btnLocal: "📂 載入本地 .jsee", btnS2T: "⚡ 簡轉繁", btnT2S: "⚡ 繁轉簡", btnS2TWP: "陸 ➔ 台", btnTW2SP: "台 ➔ 陸", btnS2TE: "簡繁擴充",
         chkSimulate: "🔍 啟用模擬比對 (與 Google 翻譯比對)", chkIgnoreTW: "🚫 忽略台灣字形 (僅標準繁簡)", chkPure: "🧹 純淨模式 (停用語法邏輯與擴充)",
-        titleInput: "📝 原始文字", titleOutput: "✨ 轉換結果", btnCopy: "複製", aboutBtn: "關於本巨集",
+        titleInput: "📝 原始文字", titleOutput: "✨ 轉換結果", btnCopy: "複製", btnClear: "清除", btnDiff: "差異", aboutBtn: "關於本巨集",
         placeholderInput: "請在此輸入或貼上原始文字...", placeholderOutput: "轉換結果將顯示於此...",
-        statusReady: "ℹ️ 就緒。請輸入或貼上文字並選擇轉換模式。", msgNoText: "⚠️ 沒有文字可以複製！", msgCopied: "已複製", msgCopyFail: "複製失敗，請全選後手動複製 (Ctrl+C)！",
-        errLoadLocal: "❌ 讀取失敗，找不到檔案。若您直接在電腦雙擊 HTML，請改用最左側的「📂 載入本地 .jsee」按鈕。",
+        statusReady: "ℹ️ 就緒。請輸入或貼上文字並選擇轉換模式。", msgNoText: "⚠️ 沒有文字可以操作！", msgCopied: "已複製", msgCopyFail: "複製失敗，請手動複製！",
+        errLoadLocal: "❌ 讀取失敗。若直接雙擊 HTML，請改用「📂 載入本地 .jsee」按鈕。", msgDiffTooLong: "文字超過 3000 字，停用差異高亮以防卡頓。",
         modalHTML: `
             <p>本網頁用來模擬在 <strong>EmEditor 環境</strong>下的轉換邏輯。這是一個專為 EmEditor 打造的高效能繁簡轉換巨集，核心轉換邏輯與詞庫基於強大的開源專案 OpenCC。</p>
             <div class="code-block">
@@ -194,10 +202,10 @@ const i18nDict = {
         mainTitle: "EmEditor OpenCC 繁简转换",
         btnLocal: "📂 载入本地 .jsee", btnS2T: "⚡ 简转繁", btnT2S: "⚡ 繁转简", btnS2TWP: "陆 ➔ 台", btnTW2SP: "台 ➔ 陆", btnS2TE: "简繁扩充",
         chkSimulate: "🔍 启用模拟比对 (与 Google 翻译比对)", chkIgnoreTW: "🚫 忽略台湾字形 (仅标准繁简)", chkPure: "🧹 纯净模式 (停用语法逻辑与扩充)",
-        titleInput: "📝 原始文本", titleOutput: "✨ 转换结果", btnCopy: "复制", aboutBtn: "关于本宏",
+        titleInput: "📝 原始文本", titleOutput: "✨ 转换结果", btnCopy: "复制", btnClear: "清除", btnDiff: "差异", aboutBtn: "关于本宏",
         placeholderInput: "请在此输入或粘贴原始文本...", placeholderOutput: "转换结果将显示于此...",
-        statusReady: "ℹ️ 就绪。请输入或粘贴文本并选择转换模式。", msgNoText: "⚠️ 没有文本可以复制！", msgCopied: "已复制", msgCopyFail: "复制失败，请全选后手动复制 (Ctrl+C)！",
-        errLoadLocal: "❌ 读取失败。若您直接在电脑双击 HTML，请改用最左侧的「📂 载入本地 .jsee」按钮。",
+        statusReady: "ℹ️ 就绪。请输入或粘贴文本并选择转换模式。", msgNoText: "⚠️ 没有文本可以操作！", msgCopied: "已复制", msgCopyFail: "复制失败，请手动复制！",
+        errLoadLocal: "❌ 读取失败。若直接双击 HTML，请改用「📂 载入本地 .jsee」按钮。", msgDiffTooLong: "文本超过 3000 字，停用差异高亮以防卡顿。",
         modalHTML: `
             <p>本网页用来模拟在 <strong>EmEditor 环境</strong>下的转换逻辑。这是一个专为 EmEditor 打造的高效能繁简转换宏，核心转换逻辑与词库基于强大的开源项目 OpenCC。</p>
             <div class="code-block">
@@ -219,10 +227,10 @@ const i18nDict = {
         mainTitle: "EmEditor OpenCC Conversion",
         btnLocal: "📂 Load Local .jsee", btnS2T: "⚡ S2T", btnT2S: "⚡ T2S", btnS2TWP: "CN ➔ TW", btnTW2SP: "TW ➔ CN", btnS2TE: "S2T Expanded",
         chkSimulate: "🔍 Simulation Mode (Compare w/ Google)", chkIgnoreTW: "🚫 Ignore TW Variants", chkPure: "🧹 Pure Mode (Disable Context Logic)",
-        titleInput: "📝 Original Text", titleOutput: "✨ Result", btnCopy: "Copy", aboutBtn: "About Macro",
+        titleInput: "📝 Original Text", titleOutput: "✨ Result", btnCopy: "Copy", btnClear: "Clear", btnDiff: "Diff", aboutBtn: "About Macro",
         placeholderInput: "Type or paste your text here...", placeholderOutput: "Conversion result will appear here...",
-        statusReady: "ℹ️ Ready. Paste text and select a conversion mode.", msgNoText: "⚠️ No text to copy!", msgCopied: "Copied", msgCopyFail: "Copy failed, please select all and copy manually (Ctrl+C)!",
-        errLoadLocal: "❌ Load failed. If opening HTML locally, please use the purple 'Load Local .jsee' button.",
+        statusReady: "ℹ️ Ready. Paste text and select a conversion mode.", msgNoText: "⚠️ No text found!", msgCopied: "Copied", msgCopyFail: "Copy failed!",
+        errLoadLocal: "❌ Load failed. Use the purple 'Load Local .jsee' button if opening HTML locally.", msgDiffTooLong: "Text > 3000 chars. Diff highlight disabled to prevent lag.",
         modalHTML: `
             <p>This page simulates the conversion logic within the <strong>EmEditor environment</strong>. It is a high-performance Chinese conversion macro designed for EmEditor, based on the OpenCC project.</p>
             <div class="code-block">
@@ -255,15 +263,11 @@ if (currentLang === 'zh-CN') fakeLangID = 2052;
 
 function T(key) { return i18nDict[currentLang][key] || key; }
 
-// ==========================================
-// 1. 環境智慧偵測與 UI 語言套用
-// ==========================================
 document.addEventListener("DOMContentLoaded", () => {
     if (window.location.protocol !== "file:") {
         document.getElementById('btnLocalLoad').style.display = 'none';
         document.getElementById('localDivider').style.display = 'none';
     }
-
     document.querySelectorAll('[data-i18n]').forEach(el => { el.innerHTML = T(el.getAttribute('data-i18n')); });
     document.querySelectorAll('[data-i18n-placeholder]').forEach(el => { el.placeholder = T(el.getAttribute('data-i18n-placeholder')); });
     document.querySelectorAll('[data-i18n-title]').forEach(el => { el.title = T(el.getAttribute('data-i18n-title')); });
@@ -282,8 +286,17 @@ function toggleModal(show) {
 }
 
 // ==========================================
-// 2. 一鍵複製功能 (升級版：支援響應式結構)
+// 1. 文字清理與複製邏輯
 // ==========================================
+function clearInput() {
+    document.getElementById('inputText').value = '';
+    document.getElementById('outputText').value = '';
+    isDiffMode = false;
+    document.getElementById('btnToggleDiff').classList.remove('active');
+    applyOutputView();
+    updateStatus(T('statusReady'));
+}
+
 async function copyText(elementId, btnElement) {
     const text = document.getElementById(elementId).value;
     if (!text) {
@@ -293,11 +306,8 @@ async function copyText(elementId, btnElement) {
     }
     try {
         await navigator.clipboard.writeText(text);
-        
-        // 分別取得圖示與文字的 Span，只改變內容而不破壞結構
-        const iconSpan = btnElement.querySelector('.copy-icon');
-        const textSpan = btnElement.querySelector('.copy-text');
-        
+        const iconSpan = btnElement.querySelector('.btn-mini-icon');
+        const textSpan = btnElement.querySelector('.btn-mini-text');
         const originalIcon = iconSpan.innerText;
         const originalText = textSpan.innerText;
         
@@ -311,6 +321,76 @@ async function copyText(elementId, btnElement) {
             btnElement.classList.remove("copied");
         }, 2000);
     } catch (err) { alert(T('msgCopyFail')); }
+}
+
+// ==========================================
+// 2. 差異比對引擎 (Diff Viewer)
+// ==========================================
+let isDiffMode = false;
+
+function toggleDiffMode() {
+    isDiffMode = !isDiffMode;
+    const btn = document.getElementById('btnToggleDiff');
+    if (isDiffMode) btn.classList.add('active');
+    else btn.classList.remove('active');
+    applyOutputView();
+}
+
+function generateDiffHTML(oldStr, newStr) {
+    if (oldStr === newStr) return escapeHTML(newStr);
+    if (oldStr.length > 3000 || newStr.length > 3000) return `<span style='color:#BF616A;'>⚠️ ${T('msgDiffTooLong')}</span><br><br>` + escapeHTML(newStr).replace(/\n/g, '<br>');
+
+    var m = oldStr.length, n = newStr.length;
+    var dp = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
+    for (var i = 1; i <= m; i++) {
+        for (var j = 1; j <= n; j++) {
+            if (oldStr[i - 1] === newStr[j - 1]) dp[i][j] = dp[i - 1][j - 1] + 1;
+            else dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+        }
+    }
+    var html = "", x = m, y = n, ops = [];
+    while (x > 0 || y > 0) {
+        if (x > 0 && y > 0 && oldStr[x - 1] === newStr[y - 1]) {
+            ops.push({ type: 'eq', text: oldStr[x - 1] }); x--; y--;
+        } else if (y > 0 && (x === 0 || dp[x][y - 1] >= dp[x - 1][y])) {
+            ops.push({ type: 'ins', text: newStr[y - 1] }); y--;
+        } else {
+            ops.push({ type: 'del', text: oldStr[x - 1] }); x--;
+        }
+    }
+    ops.reverse();
+    for(let op of ops) {
+        if (op.type === 'eq') html += escapeHTML(op.text);
+        else if (op.type === 'ins') html += `<span style="color:#0275d8; font-weight:bold; background-color:#e6f2ff; border-radius:3px; padding:0 2px;">${escapeHTML(op.text)}</span>`;
+        else if (op.type === 'del') html += `<del style="color:#d9534f; background-color:#fbe8e8; border-radius:3px; padding:0 2px; text-decoration-thickness: 2px;">${escapeHTML(op.text)}</del>`;
+    }
+    return html.replace(/\n/g, '<br>');
+}
+
+function escapeHTML(str) { return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+
+function applyOutputView() {
+    const txtOut = document.getElementById('outputText');
+    const diffView = document.getElementById('diffViewer');
+    const frame = document.getElementById('outputFrame');
+    const btnCopy = document.getElementById('btnCopyRight');
+    const btnDiff = document.getElementById('btnToggleDiff');
+
+    // 如果目前是模擬比對 (IFrame)，交給 web 物件控制
+    if (frame.style.display === 'block') return;
+
+    // 一般轉換模式
+    btnCopy.style.display = 'flex';
+    btnDiff.style.display = txtOut.value ? 'flex' : 'none';
+
+    if (isDiffMode && txtOut.value) {
+        txtOut.style.display = 'none';
+        diffView.style.display = 'block';
+        diffView.innerHTML = generateDiffHTML(document.getElementById('inputText').value, txtOut.value);
+    } else {
+        txtOut.style.display = 'block';
+        diffView.style.display = 'none';
+    }
 }
 
 // ==========================================
@@ -348,19 +428,13 @@ const shell = {
 
 const editor = { LangID: fakeLangID, ExecuteCommandByID: () => {} };
 
-function resetOutputView() {
-    document.getElementById('outputText').style.display = 'block';
-    document.getElementById('outputFrame').style.display = 'none';
-    document.getElementById('outputText').value = "";
-    document.getElementById('btnCopyRight').style.display = 'flex'; // 恢復顯示複製按鈕 (flex 確保圖示對齊)
-}
-
 const mockDocument = {
     selection: {
         get Text() { return document.getElementById('inputText').value; },
         set Text(val) {
-            resetOutputView();
+            document.getElementById('outputFrame').style.display = 'none'; // 重置為一般模式
             document.getElementById('outputText').value = val;
+            applyOutputView();
         },
         get TextLength() { return this.Text.length; },
         get IsEmpty() { return this.Text.length === 0; },
@@ -380,14 +454,16 @@ const web = {
         open: () => {},
         write: (html) => {
             document.getElementById('outputText').style.display = 'none';
+            document.getElementById('diffViewer').style.display = 'none';
             document.getElementById('btnCopyRight').style.display = 'none';
+            document.getElementById('btnToggleDiff').style.display = 'none';
+            
             const frame = document.getElementById('outputFrame');
             frame.style.display = 'block';
-            frame.contentWindow.document.open();
-            // 🌟 網頁版專屬優化：隱藏底部的按鍵提示
+            
+            // 🌟 網頁版專屬優化：攔截並隱藏底部按鍵提示，並使用 srcdoc 同步渲染解決時差問題
             html = html.replace('</head>', '<style>.footer-hint { display: none !important; }</style></head>');
-            frame.contentWindow.document.write(html);
-            frame.contentWindow.document.close();
+            frame.srcdoc = html; 
         },
         close: () => {}
     }
@@ -397,7 +473,7 @@ const web = {
 // 5. 核心載入與執行引擎
 // ==========================================
 function executeMacroCode(code, filename) {
-    resetOutputView();
+    document.getElementById('outputFrame').style.display = 'none'; // 先關閉 IFrame
     code = code.replace(/^#.*/gm, function(match) { return '// ' + match; });
 
     const msgRun = currentLang === 'en' ? `⏳ Parsing engine starting, executing ${filename || 'macro'}...` : 
