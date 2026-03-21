@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EmEditor-OpenCC-Macro Web Engine</title>
+    <title>EmEditor OpenCC Web Engine</title>
     <style>
         :root {
             --bg-color: #F9F7F3;          
@@ -61,13 +61,34 @@
         textarea, #diffViewer { flex: 1; padding: 15px; font-size: 16px; font-family: 'Consolas', 'Microsoft JhengHei', monospace; border: none; resize: none; box-shadow: inset 0 2px 4px rgba(0,0,0,0.01); line-height: 1.6; }
         textarea:focus { outline: none; }
         #outputText, #diffViewer { background-color: #FAFAFA; }
-        #diffViewer { overflow-y: auto; display: none; } /* 預設隱藏差異面板 */
+        #diffViewer { overflow-y: auto; display: none; }
 
         #outputFrame { display: none; width: 100%; height: 100%; border: none; background: white; }
 
         .status-bar { margin-top: 15px; padding: 12px 20px; background: #3B4252; color: #A3BE8C; font-weight: bold; border-radius: 8px; font-size: 14px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); letter-spacing: 0.5px; transition: opacity 0.3s ease; }
         .status-bar.error { color: #BF616A; }
 
+        /* 字數統計標籤 CSS */
+        .char-counter {
+            position: absolute;
+            bottom: 20px;
+            right: 25px;
+            font-size: 12px;
+            color: #A0A0A0;
+            pointer-events: none;
+            user-select: none;
+            background: rgba(255, 255, 255, 0.85);
+            padding: 2px 6px;
+            border-radius: 4px;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            font-weight: 500;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            letter-spacing: 0.5px;
+        }
+        .char-counter.visible { opacity: 1; }
+
+        /* 說明彈窗 Modal 樣式 */
         .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.4); z-index: 1000; justify-content: center; align-items: center; opacity: 0; transition: opacity 0.3s; }
         .modal-overlay.active { display: flex; opacity: 1; }
         .modal-content { background: white; width: 550px; max-width: 90%; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); overflow: hidden; transform: translateY(-20px); transition: transform 0.3s; }
@@ -97,7 +118,7 @@
 <body>
 
 <div class="header">
-    <h1 class="main-title" data-i18n="mainTitle">EmEditor OpenCC Macro 繁簡轉換</h1>
+    <h1 class="main-title" data-i18n="mainTitle">EmEditor OpenCC 繁簡轉換</h1>
     
     <div class="toolbar">
         <div class="controls">
@@ -136,6 +157,7 @@
             </div>
         </div>
         <textarea id="inputText" data-i18n-placeholder="placeholderInput" placeholder="請在此輸入或貼上原始文字..."></textarea>
+        <div class="char-counter" id="inputCounter"></div>
     </div>
     
     <div class="io-box">
@@ -153,6 +175,7 @@
         <textarea id="outputText" data-i18n-placeholder="placeholderOutput" placeholder="轉換結果將顯示於此..." readonly></textarea>
         <div id="diffViewer"></div>
         <iframe id="outputFrame"></iframe>
+        <div class="char-counter" id="outputCounter"></div>
     </div>
 </div>
 
@@ -161,7 +184,7 @@
 <div class="modal-overlay" id="infoModal" onclick="if(event.target === this) toggleModal(false)">
     <div class="modal-content">
         <div class="modal-header">
-            <h3>About EmEditor OpenCC Macro</h3>
+            <h3>About EmEditor OpenCC</h3>
             <button class="modal-close" onclick="toggleModal(false)">✖</button>
         </div>
         <div class="modal-body" id="modalBody"></div>
@@ -177,19 +200,19 @@ const i18nDict = {
         mainTitle: "EmEditor OpenCC 繁簡轉換",
         btnLocal: "📂 載入本地 .jsee", btnS2T: "⚡ 簡轉繁", btnT2S: "⚡ 繁轉簡", btnS2TWP: "陸 ➔ 台", btnTW2SP: "台 ➔ 陸", btnS2TE: "簡繁擴充",
         chkSimulate: "🔍 啟用模擬比對 (與 Google 翻譯比對)", chkIgnoreTW: "🚫 忽略台灣字形 (僅標準繁簡)", chkPure: "🧹 純淨模式 (停用語法邏輯與擴充)",
-        titleInput: "📝 原始文字", titleOutput: "✨ 轉換結果", btnCopy: "複製", btnClear: "清除", btnDiff: "差異", aboutBtn: "關於本巨集",
+        titleInput: "📝 原始文字", titleOutput: "✨ 轉換結果", btnCopy: "複製", btnClear: "清除", btnDiff: "差異", aboutBtn: "關於本工具",
         placeholderInput: "請在此輸入或貼上原始文字...", placeholderOutput: "轉換結果將顯示於此...",
         statusReady: "ℹ️ 就緒。請輸入或貼上文字並選擇轉換模式。", msgNoText: "⚠️ 沒有文字可以操作！", msgCopied: "已複製", msgCopyFail: "複製失敗，請手動複製！",
         errLoadLocal: "❌ 讀取失敗。若直接雙擊 HTML，請改用「📂 載入本地 .jsee」按鈕。", msgDiffTooLong: "文字超過 3000 字，停用差異高亮以防卡頓。",
         modalHTML: `
-            <p>本網頁用來模擬在 <strong>EmEditor 環境</strong>下的轉換邏輯。這是一個專為 EmEditor 打造的高效能繁簡轉換巨集，核心轉換邏輯與詞庫基於強大的開源專案 OpenCC。</p>
+            <p>本網頁用來模擬在 <strong>EmEditor 環境</strong>下的轉換邏輯。這是一個專為 EmEditor 打造的高效能繁簡轉換工具，核心轉換邏輯與詞庫基於強大的開源專案 OpenCC。</p>
             <div class="code-block">
-                <strong>Project:</strong> OpenCC for EmEditor Macro v0.26<br>
+                <strong>Project:</strong> OpenCC for EmEditor v0.26<br>
                 <strong>Author:</strong> skyuns (<a href="https://github.com/skyuns/EmEditor-OpenCC-Macro" target="_blank">GitHub Repository</a>)<br>
                 <strong>Data Source:</strong> OpenCC (<a href="https://github.com/BYVoid/OpenCC" target="_blank">BYVoid/OpenCC</a>)<br>
                 <strong>License:</strong> Apache License 2.0
             </div>
-            <p style="margin-top: 15px; font-size: 13px; color: #888;">* 本巨集基於 OpenCC 核心詞庫提供基礎繁簡轉換。請注意，轉換結果可能與官方執行版本有所出入。</p>
+            <p style="margin-top: 15px; font-size: 13px; color: #888;">* 本工具基於 OpenCC 核心詞庫提供基礎繁簡轉換。請注意，轉換結果可能與官方執行版本有所出入。</p>
             <hr style="border: 0; border-top: 1px solid #EBEBEB; margin: 15px 0;">
             <strong>⚙️ 轉換流程：</strong>
             <ol style="margin-top: 8px; padding-left: 25px;">
@@ -202,19 +225,19 @@ const i18nDict = {
         mainTitle: "EmEditor OpenCC 繁简转换",
         btnLocal: "📂 载入本地 .jsee", btnS2T: "⚡ 简转繁", btnT2S: "⚡ 繁转简", btnS2TWP: "陆 ➔ 台", btnTW2SP: "台 ➔ 陆", btnS2TE: "简繁扩充",
         chkSimulate: "🔍 启用模拟比对 (与 Google 翻译比对)", chkIgnoreTW: "🚫 忽略台湾字形 (仅标准繁简)", chkPure: "🧹 纯净模式 (停用语法逻辑与扩充)",
-        titleInput: "📝 原始文本", titleOutput: "✨ 转换结果", btnCopy: "复制", btnClear: "清除", btnDiff: "差异", aboutBtn: "关于本宏",
+        titleInput: "📝 原始文本", titleOutput: "✨ 转换结果", btnCopy: "复制", btnClear: "清除", btnDiff: "差异", aboutBtn: "关于本工具",
         placeholderInput: "请在此输入或粘贴原始文本...", placeholderOutput: "转换结果将显示于此...",
         statusReady: "ℹ️ 就绪。请输入或粘贴文本并选择转换模式。", msgNoText: "⚠️ 没有文本可以操作！", msgCopied: "已复制", msgCopyFail: "复制失败，请手动复制！",
         errLoadLocal: "❌ 读取失败。若直接双击 HTML，请改用「📂 载入本地 .jsee」按钮。", msgDiffTooLong: "文本超过 3000 字，停用差异高亮以防卡顿。",
         modalHTML: `
-            <p>本网页用来模拟在 <strong>EmEditor 环境</strong>下的转换逻辑。这是一个专为 EmEditor 打造的高效能繁简转换宏，核心转换逻辑与词库基于强大的开源项目 OpenCC。</p>
+            <p>本网页用来模拟在 <strong>EmEditor 环境</strong>下的转换逻辑。这是一个专为 EmEditor 打造的高效能繁简转换工具，核心转换逻辑与词库基于强大的开源项目 OpenCC。</p>
             <div class="code-block">
-                <strong>Project:</strong> OpenCC for EmEditor Macro v0.26<br>
+                <strong>Project:</strong> OpenCC for EmEditor v0.26<br>
                 <strong>Author:</strong> skyuns (<a href="https://github.com/skyuns/EmEditor-OpenCC-Macro" target="_blank">GitHub Repository</a>)<br>
                 <strong>Data Source:</strong> OpenCC (<a href="https://github.com/BYVoid/OpenCC" target="_blank">BYVoid/OpenCC</a>)<br>
                 <strong>License:</strong> Apache License 2.0
             </div>
-            <p style="margin-top: 15px; font-size: 13px; color: #888;">* 本宏基于 OpenCC 核心词库提供基础繁简转换。请注意，转换结果可能与官方执行版本有所出入。</p>
+            <p style="margin-top: 15px; font-size: 13px; color: #888;">* 本工具基于 OpenCC 核心词库提供基础繁简转换。请注意，转换结果可能与官方执行版本有所出入。</p>
             <hr style="border: 0; border-top: 1px solid #EBEBEB; margin: 15px 0;">
             <strong>⚙️ 转换流程：</strong>
             <ol style="margin-top: 8px; padding-left: 25px;">
@@ -227,19 +250,19 @@ const i18nDict = {
         mainTitle: "EmEditor OpenCC Conversion",
         btnLocal: "📂 Load Local .jsee", btnS2T: "⚡ S2T", btnT2S: "⚡ T2S", btnS2TWP: "CN ➔ TW", btnTW2SP: "TW ➔ CN", btnS2TE: "S2T Expanded",
         chkSimulate: "🔍 Simulation Mode (Compare w/ Google)", chkIgnoreTW: "🚫 Ignore TW Variants", chkPure: "🧹 Pure Mode (Disable Context Logic)",
-        titleInput: "📝 Original Text", titleOutput: "✨ Result", btnCopy: "Copy", btnClear: "Clear", btnDiff: "Diff", aboutBtn: "About Macro",
+        titleInput: "📝 Original Text", titleOutput: "✨ Result", btnCopy: "Copy", btnClear: "Clear", btnDiff: "Diff", aboutBtn: "About",
         placeholderInput: "Type or paste your text here...", placeholderOutput: "Conversion result will appear here...",
         statusReady: "ℹ️ Ready. Paste text and select a conversion mode.", msgNoText: "⚠️ No text found!", msgCopied: "Copied", msgCopyFail: "Copy failed!",
         errLoadLocal: "❌ Load failed. Use the purple 'Load Local .jsee' button if opening HTML locally.", msgDiffTooLong: "Text > 3000 chars. Diff highlight disabled to prevent lag.",
         modalHTML: `
-            <p>This page simulates the conversion logic within the <strong>EmEditor environment</strong>. It is a high-performance Chinese conversion macro designed for EmEditor, based on the OpenCC project.</p>
+            <p>This page simulates the conversion logic within the <strong>EmEditor environment</strong>. It is a high-performance Chinese conversion tool designed for EmEditor, based on the OpenCC project.</p>
             <div class="code-block">
-                <strong>Project:</strong> OpenCC for EmEditor Macro v0.26<br>
+                <strong>Project:</strong> OpenCC for EmEditor v0.26<br>
                 <strong>Author:</strong> skyuns (<a href="https://github.com/skyuns/EmEditor-OpenCC-Macro" target="_blank">GitHub Repository</a>)<br>
                 <strong>Data Source:</strong> OpenCC (<a href="https://github.com/BYVoid/OpenCC" target="_blank">BYVoid/OpenCC</a>)<br>
                 <strong>License:</strong> Apache License 2.0
             </div>
-            <p style="margin-top: 15px; font-size: 13px; color: #888;">* This macro provides foundational conversion based on the OpenCC core lexicon. Note that results may vary from the official implementation.</p>
+            <p style="margin-top: 15px; font-size: 13px; color: #888;">* This tool provides foundational conversion based on the OpenCC core lexicon. Note that results may vary from the official implementation.</p>
             <hr style="border: 0; border-top: 1px solid #EBEBEB; margin: 15px 0;">
             <strong>⚙️ Conversion Process:</strong>
             <ol style="margin-top: 8px; padding-left: 25px;">
@@ -286,11 +309,46 @@ function toggleModal(show) {
 }
 
 // ==========================================
-// 1. 文字清理與複製邏輯
+// 1. 字數統計與文字清理邏輯 (Debounce)
 // ==========================================
+let inputCharTimeout;
+document.getElementById('inputText').addEventListener('input', function() {
+    const counter = document.getElementById('inputCounter');
+    counter.classList.remove('visible'); 
+    clearTimeout(inputCharTimeout);
+    
+    inputCharTimeout = setTimeout(() => {
+        const len = this.value.length;
+        if (len > 0) {
+            counter.innerText = len.toLocaleString();
+            counter.classList.add('visible');
+        }
+    }, 500); // 0.5秒後顯示
+});
+
+function updateOutputCounter() {
+    const counter = document.getElementById('outputCounter');
+    counter.classList.remove('visible');
+    
+    setTimeout(() => {
+        const frame = document.getElementById('outputFrame');
+        const diff = document.getElementById('diffViewer');
+        // 如果目前是 iframe(模擬比對) 或 diff(差異模式)，隱藏字數統計防干擾
+        if (frame.style.display === 'block' || diff.style.display === 'block') return;
+        
+        const len = document.getElementById('outputText').value.length;
+        if (len > 0) {
+            counter.innerText = len.toLocaleString();
+            counter.classList.add('visible');
+        }
+    }, 500);
+}
+
 function clearInput() {
     document.getElementById('inputText').value = '';
     document.getElementById('outputText').value = '';
+    document.getElementById('inputCounter').classList.remove('visible');
+    document.getElementById('outputCounter').classList.remove('visible');
     isDiffMode = false;
     document.getElementById('btnToggleDiff').classList.remove('active');
     applyOutputView();
@@ -376,10 +434,8 @@ function applyOutputView() {
     const btnCopy = document.getElementById('btnCopyRight');
     const btnDiff = document.getElementById('btnToggleDiff');
 
-    // 如果目前是模擬比對 (IFrame)，交給 web 物件控制
     if (frame.style.display === 'block') return;
 
-    // 一般轉換模式
     btnCopy.style.display = 'flex';
     btnDiff.style.display = txtOut.value ? 'flex' : 'none';
 
@@ -391,6 +447,7 @@ function applyOutputView() {
         txtOut.style.display = 'block';
         diffView.style.display = 'none';
     }
+    updateOutputCounter();
 }
 
 // ==========================================
@@ -432,7 +489,7 @@ const mockDocument = {
     selection: {
         get Text() { return document.getElementById('inputText').value; },
         set Text(val) {
-            document.getElementById('outputFrame').style.display = 'none'; // 重置為一般模式
+            document.getElementById('outputFrame').style.display = 'none'; 
             document.getElementById('outputText').value = val;
             applyOutputView();
         },
@@ -453,17 +510,21 @@ const web = {
     document: {
         open: () => {},
         write: (html) => {
+            // 🌟 解決 IFrame 第一次顯示為空的問題 (解鎖 TrustedHTML)
+            let htmlStr = typeof html === 'string' ? html : html.toString();
+            
             document.getElementById('outputText').style.display = 'none';
             document.getElementById('diffViewer').style.display = 'none';
             document.getElementById('btnCopyRight').style.display = 'none';
             document.getElementById('btnToggleDiff').style.display = 'none';
+            document.getElementById('outputCounter').classList.remove('visible');
             
             const frame = document.getElementById('outputFrame');
             frame.style.display = 'block';
             
-            // 🌟 網頁版專屬優化：攔截並隱藏底部按鍵提示，並使用 srcdoc 同步渲染解決時差問題
-            html = html.replace('</head>', '<style>.footer-hint { display: none !important; }</style></head>');
-            frame.srcdoc = html; 
+            // 替換隱藏 CSS，並用 srcdoc 同步渲染
+            htmlStr = htmlStr.replace('</head>', '<style>.footer-hint { display: none !important; }</style></head>');
+            frame.srcdoc = htmlStr; 
         },
         close: () => {}
     }
@@ -473,7 +534,7 @@ const web = {
 // 5. 核心載入與執行引擎
 // ==========================================
 function executeMacroCode(code, filename) {
-    document.getElementById('outputFrame').style.display = 'none'; // 先關閉 IFrame
+    document.getElementById('outputFrame').style.display = 'none'; 
     code = code.replace(/^#.*/gm, function(match) { return '// ' + match; });
 
     const msgRun = currentLang === 'en' ? `⏳ Parsing engine starting, executing ${filename || 'macro'}...` : 
