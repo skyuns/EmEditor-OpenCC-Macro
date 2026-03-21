@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EmEditor-OpenCC-Macro Web Engine v0.26</title>
+    <title>EmEditor-OpenCC-Macro Web Engine</title>
     <style>
         /* 溫潤清爽色系與現代化 UI 設定 */
         :root {
@@ -21,7 +21,7 @@
 
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: var(--bg-color); color: var(--text-color); margin: 0; padding: 20px; display: flex; flex-direction: column; height: 100vh; box-sizing: border-box; }
         
-        .header { background: var(--panel-bg); padding: 15px 20px; border-radius: var(--border-radius); box-shadow: 0 4px 15px rgba(0,0,0,0.03); margin-bottom: 15px; }
+        .header { background: var(--panel-bg); padding: 15px 20px; border-radius: var(--border-radius); box-shadow: 0 4px 15px rgba(0,0,0,0.03); margin-bottom: 15px; position: relative; }
         .toolbar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px; margin-bottom: 12px; }
         .controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
         
@@ -37,15 +37,18 @@
         .btn-s2te { background: var(--btn-s2te); color: #7A601A; }
         .divider { width: 1px; height: 25px; background: #E0E0E0; margin: 0 5px; }
 
-        .options-bar { display: flex; gap: 20px; background: #F8F9FA; padding: 10px 15px; border-radius: 8px; font-size: 14px; border: 1px solid #E9ECEF; }
+        .options-bar { display: flex; gap: 20px; background: #F8F9FA; padding: 10px 15px; border-radius: 8px; font-size: 14px; border: 1px solid #E9ECEF; flex-wrap: wrap;}
         .options-bar label { display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; color: #555; font-weight: 500; }
         .options-bar input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; accent-color: #83C5BE; }
+
+        /* 右上角說明按鈕 */
+        .btn-info { position: absolute; top: 15px; right: 20px; background: transparent; color: #888; border: none; font-size: 20px; padding: 0; cursor: pointer; transition: color 0.2s; box-shadow: none; border-radius: 50%; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; }
+        .btn-info:hover { color: #0275d8; transform: scale(1.1); box-shadow: none; background: #F0F4F8; }
 
         .main-area { display: flex; gap: 20px; flex: 1; min-height: 0; }
         .io-box { flex: 1; display: flex; flex-direction: column; position: relative; background: var(--panel-bg); border-radius: var(--border-radius); box-shadow: 0 2px 8px rgba(0,0,0,0.02); overflow: hidden; border: 2px solid #EBEBEB; transition: border-color 0.2s; }
         .io-box:focus-within { border-color: #A2D2FF; }
         
-        /* 文字區標題與複製按鈕 */
         .io-header { display: flex; justify-content: space-between; align-items: center; padding: 10px 15px; background: #F8F9FA; border-bottom: 1px solid #EBEBEB; }
         .io-title { font-size: 14px; font-weight: bold; color: #666; display: flex; align-items: center; gap: 5px; }
         .btn-copy { background: transparent; color: #666; border: 1px solid #D1D1D1; padding: 4px 10px; font-size: 12px; font-weight: bold; border-radius: 6px; }
@@ -60,6 +63,25 @@
 
         .status-bar { margin-top: 15px; padding: 12px 20px; background: #3B4252; color: #A3BE8C; font-weight: bold; border-radius: 8px; font-size: 14px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); letter-spacing: 0.5px; transition: opacity 0.3s ease; }
         .status-bar.error { color: #BF616A; }
+
+        /* 說明彈窗 Modal 樣式 */
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.4); z-index: 1000; justify-content: center; align-items: center; opacity: 0; transition: opacity 0.3s; }
+        .modal-overlay.active { display: flex; opacity: 1; }
+        .modal-content { background: white; width: 550px; max-width: 90%; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); overflow: hidden; transform: translateY(-20px); transition: transform 0.3s; }
+        .modal-overlay.active .modal-content { transform: translateY(0); }
+        .modal-header { background: #F8F9FA; padding: 15px 20px; border-bottom: 1px solid #EBEBEB; display: flex; justify-content: space-between; align-items: center; }
+        .modal-header h3 { margin: 0; color: #333; font-size: 18px; }
+        .modal-close { background: transparent; border: none; font-size: 20px; color: #999; cursor: pointer; padding: 0; box-shadow: none; }
+        .modal-close:hover { color: #333; transform: none; background: transparent; }
+        .modal-body { padding: 20px; font-size: 14px; line-height: 1.6; color: #555; }
+        .modal-body p { margin-top: 0; }
+        .modal-body ul, .modal-body ol { padding-left: 20px; margin-bottom: 0; }
+        .modal-body li { margin-bottom: 8px; }
+        .modal-body a { color: #0275d8; text-decoration: none; }
+        .modal-body a:hover { text-decoration: underline; }
+        .modal-body .code-block { background: #F1F3F5; padding: 12px; border-radius: 6px; font-family: monospace; font-size: 13px; margin-top: 15px; border-left: 4px solid #83C5BE;}
+        .tagline { font-weight: bold; color: #2D5A54; font-size: 15px; text-align: center; margin-top: 30px; margin-bottom: 5px;}
+        .dev-by { text-align: center; font-style: italic; font-size: 13px; color: #888; margin-top: 0; margin-bottom: 0;}
     </style>
 </head>
 <body>
@@ -68,89 +90,200 @@
     <div class="toolbar">
         <div class="controls">
             <input type="file" id="macroLoader" accept=".jsee" style="display:none">
-            <button id="btnLocalLoad" class="btn-local" onclick="document.getElementById('macroLoader').click()">📂 載入本地 .jsee</button>
+            <button id="btnLocalLoad" class="btn-local" onclick="document.getElementById('macroLoader').click()" data-i18n="btnLocal">📂 載入本地 .jsee</button>
             <div id="localDivider" class="divider"></div>
 
-            <button class="btn-s2t" onclick="loadAndRun('S2T.jsee')">⚡ 簡轉繁</button>
-            <button class="btn-t2s" onclick="loadAndRun('T2S.jsee')">⚡ 繁轉簡</button>
-            <button class="btn-s2twp" onclick="loadAndRun('S2TWP.jsee')">陸 ➔ 台</button>
-            <button class="btn-tw2sp" onclick="loadAndRun('TW2SP.jsee')">台 ➔ 陸</button>
-            <button class="btn-s2te" onclick="loadAndRun('S2TE.jsee')">簡繁擴充</button>
+            <button class="btn-s2t" onclick="loadAndRun('S2T.jsee')" data-i18n="btnS2T">⚡ 簡轉繁</button>
+            <button class="btn-t2s" onclick="loadAndRun('T2S.jsee')" data-i18n="btnT2S">⚡ 繁轉簡</button>
+            <button class="btn-s2twp" onclick="loadAndRun('S2TWP.jsee')" data-i18n="btnS2TWP">陸 ➔ 台</button>
+            <button class="btn-tw2sp" onclick="loadAndRun('TW2SP.jsee')" data-i18n="btnTW2SP">台 ➔ 陸</button>
+            <button class="btn-s2te" onclick="loadAndRun('S2TE.jsee')" data-i18n="btnS2TE">簡繁擴充</button>
         </div>
     </div>
     
     <div class="options-bar">
-        <label title="等同於原本按住 Ctrl 鍵"><input type="checkbox" id="chkSimulate"> 🔍 啟用模擬比對 (與 Google 翻譯比對)</label>
-        <label title="等同於原本按住 Alt 鍵"><input type="checkbox" id="chkIgnoreTW"> 🚫 忽略台灣字形 (僅標準繁簡)</label>
-        <label title="等同於原本按住 Shift 鍵"><input type="checkbox" id="chkPure"> 🧹 純淨模式 (停用語法邏輯與擴充)</label>
+        <label><input type="checkbox" id="chkSimulate"> <span data-i18n="chkSimulate">🔍 啟用模擬比對 (與 Google 翻譯比對)</span></label>
+        <label><input type="checkbox" id="chkIgnoreTW"> <span data-i18n="chkIgnoreTW">🚫 忽略台灣字形 (僅標準繁簡)</span></label>
+        <label><input type="checkbox" id="chkPure"> <span data-i18n="chkPure">🧹 純淨模式 (停用語法邏輯與擴充)</span></label>
     </div>
+
+    <button class="btn-info" onclick="toggleModal(true)" title="About" data-i18n-title="aboutBtn">ℹ️</button>
 </div>
 
 <div class="main-area">
     <div class="io-box">
         <div class="io-header">
-            <span class="io-title">📝 原始文字</span>
-            <button class="btn-copy" onclick="copyText('inputText', this)">📋 複製</button>
+            <span class="io-title" data-i18n="titleInput">📝 原始文字</span>
+            <button class="btn-copy" onclick="copyText('inputText', this)" data-i18n="btnCopy">📋 複製</button>
         </div>
-        <textarea id="inputText" placeholder="請在此輸入或貼上原始文字..."></textarea>
+        <textarea id="inputText" data-i18n-placeholder="placeholderInput" placeholder="請在此輸入或貼上原始文字..."></textarea>
     </div>
     
     <div class="io-box">
         <div class="io-header">
-            <span class="io-title">✨ 轉換結果</span>
-            <button class="btn-copy" id="btnCopyRight" onclick="copyText('outputText', this)">📋 複製</button>
+            <span class="io-title" data-i18n="titleOutput">✨ 轉換結果</span>
+            <button class="btn-copy" id="btnCopyRight" onclick="copyText('outputText', this)" data-i18n="btnCopy">📋 複製</button>
         </div>
-        <textarea id="outputText" placeholder="轉換結果將顯示於此..." readonly></textarea>
+        <textarea id="outputText" data-i18n-placeholder="placeholderOutput" placeholder="轉換結果將顯示於此..." readonly></textarea>
         <iframe id="outputFrame"></iframe>
     </div>
 </div>
 
-<div class="status-bar" id="statusBar">ℹ️ 就緒。請輸入或貼上文字並選擇轉換模式。</div>
+<div class="status-bar" id="statusBar" data-i18n="statusReady">ℹ️ 就緒。請輸入或貼上文字並選擇轉換模式。</div>
+
+<div class="modal-overlay" id="infoModal" onclick="if(event.target === this) toggleModal(false)">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>About EmEditor OpenCC Macro</h3>
+            <button class="modal-close" onclick="toggleModal(false)">✖</button>
+        </div>
+        <div class="modal-body" id="modalBody">
+            </div>
+    </div>
+</div>
 
 <script>
 // ==========================================
-// 0. 環境智慧偵測與 UI 初始化
+// 0. 多國語言字典 (i18n Dictionary)
+// ==========================================
+const i18nDict = {
+    'zh-TW': {
+        btnLocal: "📂 載入本地 .jsee", btnS2T: "⚡ 簡轉繁", btnT2S: "⚡ 繁轉簡", btnS2TWP: "陸 ➔ 台", btnTW2SP: "台 ➔ 陸", btnS2TE: "簡繁擴充",
+        chkSimulate: "🔍 啟用模擬比對 (與 Google 翻譯比對)", chkIgnoreTW: "🚫 忽略台灣字形 (僅標準繁簡)", chkPure: "🧹 純淨模式 (停用語法邏輯與擴充)",
+        titleInput: "📝 原始文字", titleOutput: "✨ 轉換結果", btnCopy: "📋 複製", aboutBtn: "關於本巨集",
+        placeholderInput: "請在此輸入或貼上原始文字...", placeholderOutput: "轉換結果將顯示於此...",
+        statusReady: "ℹ️ 就緒。請輸入或貼上文字並選擇轉換模式。", msgNoText: "⚠️ 沒有文字可以複製！", msgCopied: "✅ 已複製", msgCopyFail: "複製失敗，請全選後手動複製 (Ctrl+C)！",
+        errLoadLocal: "❌ 讀取失敗，找不到檔案。若您直接在電腦雙擊 HTML，請改用最左側的「📂 載入本地 .jsee」按鈕。",
+        modalHTML: `
+            <p>本網頁用來模擬在 <strong>EmEditor 環境</strong>下的轉換邏輯。這是一個專為 EmEditor 打造的高效能繁簡轉換巨集，核心轉換邏輯與詞庫基於強大的開源專案 OpenCC。</p>
+            <div class="code-block">
+                <strong>Project:</strong> OpenCC for EmEditor Macro v0.26<br>
+                <strong>Author:</strong> skyuns (<a href="https://github.com/skyuns/EmEditor-OpenCC-Macro" target="_blank">GitHub Repository</a>)<br>
+                <strong>Data Source:</strong> OpenCC (<a href="https://github.com/BYVoid/OpenCC" target="_blank">BYVoid/OpenCC</a>)<br>
+                <strong>License:</strong> Apache License 2.0
+            </div>
+            <p style="margin-top: 15px; font-size: 13px; color: #888;">* 本巨集基於 OpenCC 核心詞庫提供基礎繁簡轉換。請注意，轉換結果可能與官方執行版本有所出入。</p>
+            <hr style="border: 0; border-top: 1px solid #EBEBEB; margin: 15px 0;">
+            <strong>⚙️ 轉換流程：</strong>
+            <ol style="margin-top: 8px; padding-left: 25px;">
+                <li>讀取主字典映射與例外清單</li><li>封裝構建高效能 <strong>Trie 字典樹</strong></li><li>動態分段執行 FMM (正向最大匹配)</li><li>啟動 <strong>Context Logic (語意邏輯引擎)</strong> 處理歧義</li>
+            </ol>
+            <div class="tagline">EmEditor-OpenCC-Macro: Precision Conversion, Contextual Perfection.</div>
+            <div class="dev-by">Developed by skyuns</div>`
+    },
+    'zh-CN': {
+        btnLocal: "📂 载入本地 .jsee", btnS2T: "⚡ 简转繁", btnT2S: "⚡ 繁转简", btnS2TWP: "陆 ➔ 台", btnTW2SP: "台 ➔ 陆", btnS2TE: "简繁扩充",
+        chkSimulate: "🔍 启用模拟比对 (与 Google 翻译比对)", chkIgnoreTW: "🚫 忽略台湾字形 (仅标准繁简)", chkPure: "🧹 纯净模式 (停用语法逻辑与扩充)",
+        titleInput: "📝 原始文本", titleOutput: "✨ 转换结果", btnCopy: "📋 复制", aboutBtn: "关于本宏",
+        placeholderInput: "请在此输入或粘贴原始文本...", placeholderOutput: "转换结果将显示于此...",
+        statusReady: "ℹ️ 就绪。请输入或粘贴文本并选择转换模式。", msgNoText: "⚠️ 没有文本可以复制！", msgCopied: "✅ 已复制", msgCopyFail: "复制失败，请全选后手动复制 (Ctrl+C)！",
+        errLoadLocal: "❌ 读取失败。若您直接在电脑双击 HTML，请改用最左侧的「📂 载入本地 .jsee」按钮。",
+        modalHTML: `
+            <p>本网页用来模拟在 <strong>EmEditor 环境</strong>下的转换逻辑。这是一个专为 EmEditor 打造的高效能繁简转换宏，核心转换逻辑与词库基于强大的开源项目 OpenCC。</p>
+            <div class="code-block">
+                <strong>Project:</strong> OpenCC for EmEditor Macro v0.26<br>
+                <strong>Author:</strong> skyuns (<a href="https://github.com/skyuns/EmEditor-OpenCC-Macro" target="_blank">GitHub Repository</a>)<br>
+                <strong>Data Source:</strong> OpenCC (<a href="https://github.com/BYVoid/OpenCC" target="_blank">BYVoid/OpenCC</a>)<br>
+                <strong>License:</strong> Apache License 2.0
+            </div>
+            <p style="margin-top: 15px; font-size: 13px; color: #888;">* 本宏基于 OpenCC 核心词库提供基础繁简转换。请注意，转换结果可能与官方执行版本有所出入。</p>
+            <hr style="border: 0; border-top: 1px solid #EBEBEB; margin: 15px 0;">
+            <strong>⚙️ 转换流程：</strong>
+            <ol style="margin-top: 8px; padding-left: 25px;">
+                <li>读取主字典映射与例外清单</li><li>封装构建高效能 <strong>Trie 字典树</strong></li><li>动态分段执行 FMM (正向最大匹配)</li><li>启动 <strong>Context Logic (语义逻辑引擎)</strong> 处理歧义</li>
+            </ol>
+            <div class="tagline">EmEditor-OpenCC-Macro: Precision Conversion, Contextual Perfection.</div>
+            <div class="dev-by">Developed by skyuns</div>`
+    },
+    'en': {
+        btnLocal: "📂 Load Local .jsee", btnS2T: "⚡ S2T", btnT2S: "⚡ T2S", btnS2TWP: "CN ➔ TW", btnTW2SP: "TW ➔ CN", btnS2TE: "S2T Expanded",
+        chkSimulate: "🔍 Simulation Mode (Compare w/ Google)", chkIgnoreTW: "🚫 Ignore TW Variants", chkPure: "🧹 Pure Mode (Disable Context Logic)",
+        titleInput: "📝 Original Text", titleOutput: "✨ Result", btnCopy: "📋 Copy", aboutBtn: "About Macro",
+        placeholderInput: "Type or paste your text here...", placeholderOutput: "Conversion result will appear here...",
+        statusReady: "ℹ️ Ready. Paste text and select a conversion mode.", msgNoText: "⚠️ No text to copy!", msgCopied: "✅ Copied", msgCopyFail: "Copy failed, please select all and copy manually (Ctrl+C)!",
+        errLoadLocal: "❌ Load failed. If opening HTML locally, please use the purple 'Load Local .jsee' button.",
+        modalHTML: `
+            <p>This page simulates the conversion logic within the <strong>EmEditor environment</strong>. It is a high-performance Chinese conversion macro designed for EmEditor, based on the OpenCC project.</p>
+            <div class="code-block">
+                <strong>Project:</strong> OpenCC for EmEditor Macro v0.26<br>
+                <strong>Author:</strong> skyuns (<a href="https://github.com/skyuns/EmEditor-OpenCC-Macro" target="_blank">GitHub Repository</a>)<br>
+                <strong>Data Source:</strong> OpenCC (<a href="https://github.com/BYVoid/OpenCC" target="_blank">BYVoid/OpenCC</a>)<br>
+                <strong>License:</strong> Apache License 2.0
+            </div>
+            <p style="margin-top: 15px; font-size: 13px; color: #888;">* This macro provides foundational conversion based on the OpenCC core lexicon. Note that results may vary from the official implementation.</p>
+            <hr style="border: 0; border-top: 1px solid #EBEBEB; margin: 15px 0;">
+            <strong>⚙️ Conversion Process:</strong>
+            <ol style="margin-top: 8px; padding-left: 25px;">
+                <li>Load mappings & exceptions</li><li>Build high-performance <strong>Trie Tree</strong></li><li>Execute FMM (Forward Maximum Matching)</li><li>Engage <strong>Context Logic Engine</strong> for disambiguation</li>
+            </ol>
+            <div class="tagline">EmEditor-OpenCC-Macro: Precision Conversion, Contextual Perfection.</div>
+            <div class="dev-by">Developed by skyuns</div>`
+    }
+};
+
+let currentLang = 'en'; // Default
+const sysLang = navigator.language || navigator.userLanguage;
+if (sysLang.startsWith('zh')) {
+    currentLang = (sysLang.includes('TW') || sysLang.includes('HK') || sysLang.includes('MO') || sysLang === 'zh-Hant') ? 'zh-TW' : 'zh-CN';
+}
+document.documentElement.lang = currentLang;
+
+let fakeLangID = 1033; 
+if (currentLang === 'zh-TW') fakeLangID = 1028;
+if (currentLang === 'zh-CN') fakeLangID = 2052;
+
+function T(key) { return i18nDict[currentLang][key] || key; }
+
+// ==========================================
+// 1. 環境智慧偵測與 UI 語言套用
 // ==========================================
 document.addEventListener("DOMContentLoaded", () => {
-    // 若不是透過 file:/// 開啟（代表在 GitHub Pages 或伺服器環境）
     if (window.location.protocol !== "file:") {
         document.getElementById('btnLocalLoad').style.display = 'none';
         document.getElementById('localDivider').style.display = 'none';
     }
+
+    document.querySelectorAll('[data-i18n]').forEach(el => { el.innerHTML = T(el.getAttribute('data-i18n')); });
+    document.querySelectorAll('[data-i18n-placeholder]').forEach(el => { el.placeholder = T(el.getAttribute('data-i18n-placeholder')); });
+    document.querySelectorAll('[data-i18n-title]').forEach(el => { el.title = T(el.getAttribute('data-i18n-title')); });
+    document.getElementById('modalBody').innerHTML = T('modalHTML');
 });
 
-// ==========================================
-// 1. 一鍵複製功能 (支援動態 UI 回饋)
-// ==========================================
-async function copyText(elementId, btnElement) {
-    const text = document.getElementById(elementId).value;
-    if (!text) {
-        updateStatus("⚠️ 沒有文字可以複製！", true);
-        setTimeout(() => updateStatus("ℹ️ 就緒。請輸入或貼上文字並選擇轉換模式。"), 2000);
-        return;
-    }
-    
-    try {
-        await navigator.clipboard.writeText(text);
-        
-        // 按鈕視覺回饋
-        const originalText = btnElement.innerText;
-        btnElement.innerText = "✅ 已複製";
-        btnElement.classList.add("copied");
-        
-        // 2秒後恢復原狀
-        setTimeout(() => {
-            btnElement.innerText = originalText;
-            btnElement.classList.remove("copied");
-        }, 2000);
-        
-    } catch (err) {
-        alert("複製失敗，請全選後手動複製 (Ctrl+C)！");
+function toggleModal(show) {
+    const modal = document.getElementById('infoModal');
+    if (show) {
+        modal.style.display = 'flex';
+        setTimeout(() => modal.classList.add('active'), 10);
+    } else {
+        modal.classList.remove('active');
+        setTimeout(() => modal.style.display = 'none', 300);
     }
 }
 
 // ==========================================
-// 2. UI 狀態與防呆清理
+// 2. 一鍵複製功能
+// ==========================================
+async function copyText(elementId, btnElement) {
+    const text = document.getElementById(elementId).value;
+    if (!text) {
+        updateStatus(T('msgNoText'), true);
+        setTimeout(() => updateStatus(T('statusReady')), 2000);
+        return;
+    }
+    try {
+        await navigator.clipboard.writeText(text);
+        const originalText = btnElement.innerText;
+        btnElement.innerText = T('msgCopied');
+        btnElement.classList.add("copied");
+        setTimeout(() => {
+            btnElement.innerText = originalText;
+            btnElement.classList.remove("copied");
+        }, 2000);
+    } catch (err) { alert(T('msgCopyFail')); }
+}
+
+// ==========================================
+// 3. UI 狀態與防呆清理
 // ==========================================
 function updateStatus(msg, isError = false) {
     const bar = document.getElementById('statusBar');
@@ -159,7 +292,7 @@ function updateStatus(msg, isError = false) {
 }
 
 // ==========================================
-// 3. EmEditor 虛擬環境建構 (Mocking)
+// 4. EmEditor 虛擬環境建構 (Mocking)
 // ==========================================
 class MacroQuitException extends Error { constructor() { super("MACRO_QUIT"); } }
 
@@ -168,10 +301,7 @@ let Redraw = true, CombineHistory = false;
 
 Object.defineProperty(window, 'status', {
     get: function() { return this._macroStatus || ""; },
-    set: function(val) { 
-        this._macroStatus = val; 
-        updateStatus(val); 
-    },
+    set: function(val) { this._macroStatus = val; updateStatus(val); },
     configurable: true
 });
 
@@ -182,17 +312,16 @@ const shell = {
         if (code === 0x12) return document.getElementById('chkIgnoreTW').checked ? -1 : 0;
         return 0;
     },
-    KeepRunning: false,
-    SendKeys: () => {}
+    KeepRunning: false, SendKeys: () => {}
 };
 
-const editor = { LangID: 1028, ExecuteCommandByID: () => {} };
+const editor = { LangID: fakeLangID, ExecuteCommandByID: () => {} };
 
 function resetOutputView() {
     document.getElementById('outputText').style.display = 'block';
     document.getElementById('outputFrame').style.display = 'none';
     document.getElementById('outputText').value = "";
-    document.getElementById('btnCopyRight').style.display = 'block'; // 恢復顯示複製按鈕
+    document.getElementById('btnCopyRight').style.display = 'block';
 }
 
 const mockDocument = {
@@ -205,17 +334,14 @@ const mockDocument = {
         get TextLength() { return this.Text.length; },
         get IsEmpty() { return this.Text.length === 0; },
         SelectWord: () => {}, Mode: 1, Count: 1,
-        GetTopPointY: () => 1, GetTopPointX: () => 1,
-        GetBottomPointY: () => 1, GetBottomPointX: () => 1,
+        GetTopPointY: () => 1, GetTopPointX: () => 1, GetBottomPointY: () => 1, GetBottomPointX: () => 1,
         SetActivePoint: () => {}, SetAnchorPoint: () => {}
     },
-    filters: { Count: 0 }, Csv: null,
-    GetLine: () => "", GetCell: () => "", SetCell: () => {}
+    filters: { Count: 0 }, Csv: null, GetLine: () => "", GetCell: () => "", SetCell: () => {}
 };
 
-const WebBar = {
-    Visible: true, SetFocus: () => {}, Open: (url) => {} 
-};
+const WebBar = { Visible: true, SetFocus: () => {}, Open: (url) => {} };
+const OutputBar = { Clear: () => {}, writeln: console.log, Visible: false };
 
 const web = {
     window: window,
@@ -223,7 +349,7 @@ const web = {
         open: () => {},
         write: (html) => {
             document.getElementById('outputText').style.display = 'none';
-            document.getElementById('btnCopyRight').style.display = 'none'; // 模擬比對畫面不支援文字複製，隱藏按鈕
+            document.getElementById('btnCopyRight').style.display = 'none';
             const frame = document.getElementById('outputFrame');
             frame.style.display = 'block';
             frame.contentWindow.document.open();
@@ -234,27 +360,26 @@ const web = {
     }
 };
 
-const OutputBar = { Clear: () => {}, writeln: console.log, Visible: false };
-
 // ==========================================
-// 4. 核心載入與執行引擎
+// 5. 核心載入與執行引擎
 // ==========================================
 function executeMacroCode(code, filename) {
     resetOutputView();
     code = code.replace(/^#.*/gm, function(match) { return '// ' + match; });
 
-    updateStatus(`⏳ 解析引擎啟動中，執行 ${filename || '巨集'}...`);
+    const msgRun = currentLang === 'en' ? `⏳ Parsing engine starting, executing ${filename || 'macro'}...` : 
+                  (currentLang === 'zh-CN' ? `⏳ 解析引擎启动中，执行 ${filename || '宏'}...` : `⏳ 解析引擎啟動中，執行 ${filename || '巨集'}...`);
+    updateStatus(msgRun);
 
     const macroRunner = new Function(
         'document', 'shell', 'editor', 'WebBar', 'OutputBar', 'web',
         'eePosLogical', 'eePosCell', 'eeShowTipHide', 'Redraw', 'CombineHistory',
-        'ShowTip', 'Quit', 'alert',
-        code
+        'ShowTip', 'Quit', 'alert', code
     );
 
     const fakeShowTip = (msg) => { if (msg) updateStatus(msg); };
     const fakeQuit = () => { throw new MacroQuitException(); };
-    const fakeAlert = (msg) => { alert("巨集提示:\n" + msg); };
+    const fakeAlert = (msg) => { alert("Message:\n" + msg); };
 
     try {
         macroRunner(
@@ -265,7 +390,8 @@ function executeMacroCode(code, filename) {
     } catch (error) {
         if (!(error instanceof MacroQuitException)) {
             console.error(error);
-            updateStatus(`❌ 執行發生錯誤: ${error.message}`, true);
+            const errPrefix = currentLang === 'en' ? "❌ Execution error: " : (currentLang === 'zh-CN' ? "❌ 执行发生错误: " : "❌ 執行發生錯誤: ");
+            updateStatus(errPrefix + error.message, true);
         }
     }
 }
@@ -282,14 +408,15 @@ document.getElementById('macroLoader').addEventListener('change', function(e) {
 });
 
 async function loadAndRun(filename) {
-    updateStatus(`⏳ 讀取腳本 ${filename} ...`);
+    const msgRead = currentLang === 'en' ? `⏳ Loading script ${filename} ...` : (currentLang === 'zh-CN' ? `⏳ 读取脚本 ${filename} ...` : `⏳ 讀取腳本 ${filename} ...`);
+    updateStatus(msgRead);
     try {
         const response = await fetch(filename);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         let code = await response.text();
         executeMacroCode(code, filename);
     } catch (error) {
-        updateStatus(`❌ 讀取失敗，找不到檔案。若您直接在電腦雙擊 HTML，請改用最左側的「📂 載入本地 .jsee」按鈕。`, true);
+        updateStatus(T('errLoadLocal'), true);
     }
 }
 </script>
