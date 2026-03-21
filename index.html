@@ -384,6 +384,8 @@ const web = {
             const frame = document.getElementById('outputFrame');
             frame.style.display = 'block';
             frame.contentWindow.document.open();
+            // 🌟 網頁版專屬優化：隱藏底部的按鍵提示
+            html = html.replace('</head>', '<style>.footer-hint { display: none !important; }</style></head>');
             frame.contentWindow.document.write(html);
             frame.contentWindow.document.close();
         },
