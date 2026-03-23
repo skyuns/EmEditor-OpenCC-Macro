@@ -4,7 +4,7 @@
 #icon="S2T.ico"
 
 /**
- * Project: OpenCC for EmEditor Macro v0.26
+ * Project: OpenCC for EmEditor Macro v0.26a
  * Author: skyuns (https://github.com/skyuns/EmEditor-OpenCC-Macro)
  * This macro provides foundational conversion based on the OpenCC core lexicon. Note that results may vary from the official implementation.
  * (本巨集基於 OpenCC 核心詞庫提供基礎繁簡轉換。請注意，轉換結果可能與官方執行版本有所出入。)
@@ -54008,11 +54008,11 @@ function main() {
     "刮了": true, "刮去": true, "刮走": true, "刮着": true, "刮得": true,
     "制面": true,
     "厂部": true, "广部": true,
-    "乱发": true, "发色": true,
+    "乱发": true, "发色": true, "生发": true, "发卷": true, "额发": true,
     "那只": true, "这只": true, "哪只": true, "每只": true, "首只": true, "换只": true, "是只": true, "鸡只": true, "猪只": true, "牛只": true,
     "天后": true,
     "不复": true, "回复": true, "往复": true, "复合": true, "行复": true, "更复": true, "办复": true, "开复": true,
-    "不干": true, "相干": true,
+    "不干": true, "相干": true, "干他": true, "干你": true, "干她": true, "干我": true, "干了": true,
     "并成": true, "并为": true,
     "大曲": true,
     "此系": true,
@@ -54021,7 +54021,8 @@ function main() {
     "下面": true, "冷面": true, "白面": true, "面包": true, "片面": true,
     "愈合": true,
     "马表": true,
-    "全彩": true
+    "全彩": true,
+    "卷轴": true, "卷上": true
     };
 
     const parseMainData = (rawStr) => {
@@ -54153,7 +54154,7 @@ const ContextLogic = {
     // 15. 历	歷 曆
     0x5386: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return(p==="教"&&(m+"的 ").indexOf(n)!==-1||"文马兰犹佛回林".indexOf(p)!==-1&&" 的".indexOf(n)!==-1||"钟鐘".indexOf(n)!==-1)?"曆":"歷";},
     // 16. 发	發 髮
-    0x53D1: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",n2=t.charAt(i+2)||" ";return(p==="散"&&"出着香热气单".indexOf(n)!==-1||p==="生"&&"出中".indexOf(n)!==-1||p==="乱"&&("脾疯愁财货票奖薪电邮信布表".indexOf(n)!==-1||n==="色"&&n2==="情"||n==="文"&&n2==="章"||"贴".indexOf(n)!==-1)||n==="卷"&&"子宗".indexOf(n2)!==-1||n==="色"&&"幕板影显示器".indexOf(p)!==-1)?"發":("理洗修剪剃梳束扎披结染烫插整洁翦头白黑长短假毫须乱蓬松柔金银灰乌丝秀鬈卷秃脱华皓鬐鬋髶髹髺髽髾鬃鬄髦".indexOf(p)!==-1||"卡冠缏髻髲鬄鬈绺胶夹簪带箍丝型辫根梢脚际乳质妻尾带廊式指旋禁肤色菜饰".indexOf(n)!==-1)?"髮":"發";},
+    0x53D1: function(i,t){var pp=t.charAt(i-2)||" ",p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",n2=t.charAt(i+2)||" ";return(p==="生"&&"不代债券博卡工币录料津考药补讲证诊费邮酬帖件聘粮".indexOf(n)!==-1||p==="乱"&&("脾疯怒愁财货票奖薪电邮信布表".indexOf(n)!==-1||n==="色"&&n2==="情"||n==="文"&&n2==="章"||"贴".indexOf(n)!==-1)||n==="卷"&&"子宗".indexOf(n2)!==-1||n==="色"&&"幕板影显示器".indexOf(p)!==-1||(p==="额"&&"足满金全总差配税员份定限小大超增减名等缺補".indexOf(pp)!==-1&&(m.indexOf(n)!==-1||"工补证料券币代债不".indexOf(n)!==-1)))?"發":((p==="生"&&"贼寇花".indexOf(pp)===-1)||p==="额"||"卷乱修扎插整洁翦松柔鬐鬋髶髹髺髽髾鬃鬄髦".indexOf(p)!==-1||"卡冠缏髲鬄鬈绺色卷".indexOf(n)!==-1)?"髮":"發";},
     // 17. 只	只 隻 祇
     0x53EA: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";if("会能是有好在可须需要想怕求见剩管顾为限凭供懂配得当通待算".indexOf(n)!==-1)return"只";return((m+"这那哪每单双大小多别换是首鸡牛猪").indexOf(p)!==-1||"狼虎狗猫鸭羊马兽禽虫鸟雁雕鹰脚臂耳艇".indexOf(n)!==-1)?"隻":"只";},
     // 18. 台	臺 檯 颱 台
@@ -54171,7 +54172,7 @@ const ContextLogic = {
     // 24. 姜	姜 薑
     0x59DC: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return("味粉油水".indexOf(n)!==-1||"嫩磨切腌泡烤".indexOf(p)!==-1)?"薑":"姜";},
     // 25. 干	幹 乾 干
-    0x5E72: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";if("鸭瞪看化夏酒清嘉州扁匏".indexOf(n)!==-1||"漆墨笔汗血冬肴".indexOf(p)!==-1)return"乾";if("盾卿".indexOf(n)!==-1||p==="相")return"干";return"幹";},
+    0x5E72: function(i,t){var pp=t.charAt(i-2)||" ",p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",nn=t.charAt(i+2)||" ",nnn=t.charAt(i+3)||" ";if("鸭瞪看化夏酒清嘉州扁匏彖".indexOf(n)!==-1||"漆墨笔汗血冬肴拍".indexOf(p)!==-1||(p==="发"&&pp==="挥")||(p==="伏"&&pp==="乞")||(n==="了"&&(("这那"+m).indexOf(nn)!==-1&&"坛杯瓶碗樽壶钟盅".indexOf(nnn)!==-1||"啐飕巴泥胶泽壤衣花".indexOf(p)!==-1||("地面都就说也".indexOf(p)!==-1&&"田水溪海嘴巴".indexOf(pp)!==-1))))return"乾";if("盾卿".indexOf(n)!==-1||p==="相"||(p==="长"&&"行人延市别別妙午".indexOf(n)!==-1)||("我你妳他她它".indexOf(n)!==-1&&(p==="不"||"们底屁事什甚何".indexOf(nn)!==-1)))return"干";return"幹";},
     // 26. 并	並 併
     0x5E76: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",nn=t.charAt(i+2)||" ";if(n==="成")return("功为立就长行全亲婚交名佛双对套仙家形型熟仁约真瘾灾效案".indexOf(nn)!==-1)?"並":"併";if(n==="为")return("了难害善我民此何之非人".indexOf(nn)!==-1)?"並":"併";return((p==="秦"&&n==="六")||(p==="功"&&n==="弃"))?"併":"並";},
     // 27. 征	徵 征
@@ -54221,7 +54222,9 @@ const ContextLogic = {
     // 49. 愈	愈 癒
     0x6108: function(i,t){var n=t.charAt(i+1)||" ",n2=t.charAt(i+2)||" ";return(n==="合"&&"适理法情算身心用意于乎他式我拍拢她".indexOf(n2)===-1)?"癒":"愈";},
     // 50. 扎	扎 紮
-    0x624E: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return("缠绞缚系绷".indexOf(p)!==-1||"辫裤发绳制捆束".indexOf(n)!==-1)?"紮":"扎";}
+    0x624E: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return("缠绞缚系绷".indexOf(p)!==-1||"辫裤发绳制捆束".indexOf(n)!==-1)?"紮":"扎";},
+    // 51. 卷	卷 捲
+    0x5377: function(i,t){var pp=t.charAt(i-2)||" ",p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";if(p==="发"&&"子宗".indexOf(n)===-1)return"捲";if(n==="轴"&&"垂直|纵向|横向|水平|电脑|萤幕|设定".indexOf(pp+p)!==-1)return"捲";if(n==="上"){if("》．(".indexOf(p)!==-1&&"例传则咏品商契子存实志抄断求注源牍物璞异疏章簿经编纂义羹考腴要规解觿记注话语谈论谱议钞录集事史草补丛".indexOf(pp)!==-1)return"卷";return"捲";}return"卷";}
 };
 
     // === 新增繁轉簡語法邏輯 ContextLogic_T2S 引擎 ===
