@@ -4,25 +4,28 @@
 #icon="S2T.ico"
 
 /**
- * Project: OpenCC for EmEditor Macro v0.27
+ * Project: OpenCC for EmEditor Macro v0.30
  * Author: skyuns (https://github.com/skyuns/EmEditor-OpenCC-Macro)
  * This macro provides foundational conversion based on the OpenCC core lexicon. Note that results may vary from the official implementation.
  * (本巨集基於 OpenCC 核心詞庫提供基礎繁簡轉換。請注意，轉換結果可能與官方執行版本有所出入。)
  * Data Source: OpenCC (https://github.com/BYVoid/OpenCC)
  * License: Apache License 2.0
- * 轉換流程：1. 讀取主字典映射 -> 2. 封裝 Trie 字典樹 -> 3. 動態分段執行 FMM 匹配 -> 4. 語意邏輯轉換 (Context Logic)
+ * 轉換流程：1. 讀取主字典映射 -> 2. 封裝 Trie 字典樹 -> 3. 視界邏輯 (Vision Logic) 4. 動態分段執行 FMM 匹配 -> 5. 語意邏輯 (Context Logic)
  * 簡易測試：乾隆在干净的房间里瞭望远方，看见屋檐下一出戏正在上演，于是转身一出去，扭转乾坤。
  * 參考結果：乾隆在乾淨的房間裡瞭望遠方，看見屋簷下一齣戲正在上演，於是轉身一出去，扭轉乾坤。
  * [Disclaimer] The simulator comparison feature is a non-official API implementation provided by Gemini for personal research; users assume all risks regarding potential IP rate-limiting. Default is disabled.
  * 語法測試：你别着恼，这只怪他乱发脾气，先回厂部办公室，用那陶瓷制的杯子，冲点咖啡搭配一个中式面包。
  * 參考結果：你別著惱，這只怪他亂發脾氣，先回廠部辦公室，用那陶瓷製的杯子，沖點咖啡搭配一個中式麵包。
+ * 視界測試：我在餐厅上面，要求快点上面包，桌子上面很脏，所以桌子上面包覆着桌巾，我吃着桌子上面包，看着下面条文，等着厨师下面条。
+ * 參考結果：我在餐廳上面，要求快點上麵包，桌子上面很髒，所以桌子上面包覆著桌巾，我吃著桌子上麵包，看著下面條文，等著廚師下麵條。
  */
 
 const CURRENT_MODE = "S2T";
 const Simulator_MODE = false; // 模擬轉換模式 (true: 始終開啟; false: 需按住 Ctrl 觸發)
 const ContextLogic_MODE = true; // 語法邏輯 ContextLogic 引擎總開關 (true: 啟動; false: 關閉)
+const VisionLogic_MODE = true; // 視界邏輯 VisionLogic 引擎總開關 (true: 啟動; false: 關閉)
 
-// --- [區塊 A：簡轉繁詞組資料 (STPhrases.txt) 更新至 2026-03-24] ---
+// --- [區塊 A：簡轉繁詞組資料 (STPhrases.txt) 更新至 2026-03-26] ---
 const rawPhraseData = `
 # Open Chinese Convert (OpenCC) Dictionary
 # File: STPhrases.txt
@@ -6759,6 +6762,7 @@ const rawPhraseData = `
 几万人	幾萬人
 几万元	幾萬元
 几万块	幾萬塊
+几万里	幾萬里
 几上	几上
 几下	幾下
 几世	幾世
@@ -6853,6 +6857,7 @@ const rawPhraseData = `
 几千元	幾千元
 几千块	幾千塊
 几千年	幾千年
+几千里	幾千里
 几发	幾發
 几句	幾句
 几句话	幾句話
@@ -7001,6 +7006,7 @@ const rawPhraseData = `
 几百元	幾百元
 几百块	幾百塊
 几百年	幾百年
+几百里	幾百里
 几盏	幾盞
 几盒	幾盒
 几盒装	幾盒裝
@@ -18964,7 +18970,6 @@ const rawPhraseData = `
 射回	射回
 射回去	射回去
 射回来	射回來
-射复	射覆
 射干	射干
 射影几何	射影幾何
 射影几何学	射影幾何學
@@ -53307,7 +53312,6 @@ async function compareWithGoogle(origText, macroText, modeNames) {
     }
 
     try {
-        // 1. 上限防呆
         if (origText.length > 200) {
             let limitMsg = _L(
                 "⚠️ Selection exceeds 200 characters limit (" + origText.length + " chars). Google translation comparison skipped.\n",
@@ -53321,7 +53325,6 @@ async function compareWithGoogle(origText, macroText, modeNames) {
         let targetLang = (CURRENT_MODE === "T2S" || CURRENT_MODE === "TW2SP") ? "zh-CN" : "zh-TW";
         let sourceLang = (CURRENT_MODE === "T2S" || CURRENT_MODE === "TW2SP") ? "zh-TW" : "zh-CN";
 
-        // 2. 函數定義區
         function computeDiff(oldStr, newStr) {
             var oldChars = Array.from(oldStr), newChars = Array.from(newStr);
             var m = oldChars.length, n = newChars.length;
@@ -53359,7 +53362,6 @@ async function compareWithGoogle(origText, macroText, modeNames) {
             return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
         }
 
-        // 3. 呼叫 Google 翻譯 API (加入 Try-Catch 防止斷線崩潰)
         let googleText = "";
         try {
             const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sourceLang}&tl=${targetLang}&dt=t&q=${encodeURIComponent(origText)}`;
@@ -53379,7 +53381,6 @@ async function compareWithGoogle(origText, macroText, modeNames) {
             googleText = apiErrorMsg;
         }
 
-        // 4. 清理並正規化字串
         var normOrig = origText.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
         var normMacro = macroText.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
         var normGoogle = googleText.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
@@ -53396,7 +53397,6 @@ async function compareWithGoogle(origText, macroText, modeNames) {
         
         var strippedCount = normOrig.length - origTrimmed.length;
 
-        // 5. 雙階段色彩判定引擎
         var diffsOM = computeDiff(origTrimmed, macroTrimmed);
         var macroColor = new Array(macroTrimmed.length).fill('black');
         var m_idx = 0;
@@ -53445,7 +53445,6 @@ async function compareWithGoogle(origText, macroText, modeNames) {
             diffCount += Math.max(delTemp, insTemp);
         }
 
-        // 6. 組合彩色 HTML 字串
         function buildColoredHTML(text, colors) {
             var html = "";
             var currentColor = null;
@@ -53622,7 +53621,6 @@ async function compareWithGoogle(origText, macroText, modeNames) {
 </body>
 </html>`;
 
-        // ★ 核心觸發點：顯示畫面
         openInWebBar(htmlContent);
 
     } catch (e) {
@@ -53632,7 +53630,6 @@ async function compareWithGoogle(origText, macroText, modeNames) {
         shell.KeepRunning = false;
     }
 
-    // --- [內建函數] 寫入 HTML ---
     function openInWebBar(htmlString) {
         if (!htmlString.startsWith("<!DOCTYPE html>")) {
             htmlString = `<!DOCTYPE html><html><body style="padding:20px;font-family:sans-serif;">${htmlString}</body></html>`;
@@ -53663,13 +53660,17 @@ async function compareWithGoogle(origText, macroText, modeNames) {
 // --- [##核心邏輯區##] ---
 function main() {
     // 0. 偵測外部是否開啟模擬模式 (智慧判定) 與 控制鍵狀態
-    const isShiftPressed = (shell.GetKeyState(0x10) < 0); // 按住 Shift : 僅使用標準詞組與單字，忽略 [語法邏輯引擎]、[區塊 B：自訂擴充覆寫詞庫]、[區塊 D：台灣字形修正 (TWVariants.txt)]、[區塊 E：台灣字形修正例外清單]
+    const isShiftPressed = (shell.GetKeyState(0x10) < 0); // 按住 Shift : 僅使用標準詞組與單字，忽略 [視界邏輯]、[語法邏輯]、[區塊 B：自訂擴充覆寫詞庫]、[區塊 D：台灣字形修正 (TWVariants.txt)]、[區塊 E：台灣字形修正例外清單]
     const isCtrlPressed = (shell.GetKeyState(0x11) < 0); // 按住 Ctrl : 使用模擬轉換模式
     const isAltPressed = (shell.GetKeyState(0x12) < 0); // 按住 Alt : 忽略 [區塊 D：台灣字形修正 (TWVariants.txt)]
     const isSimulate = (typeof Simulator_MODE !== "undefined" && Simulator_MODE === true) || isCtrlPressed;
+
     const isContextLogicReady = ContextLogic_MODE && !isShiftPressed;
     const effectiveContextLogic = isContextLogicReady && (CURRENT_MODE === "S2T" || CURRENT_MODE === "S2TE");
     const effectiveContextLogic_T2S = isContextLogicReady && CURRENT_MODE === "T2S";
+
+    const isVisionLogicReady = VisionLogic_MODE && !isShiftPressed;
+    const effectiveVisionLogic = isVisionLogicReady && (CURRENT_MODE === "S2T" || CURRENT_MODE === "S2TE");
 
     // 1. 動態模式與多國語言設定
     const langId = editor.LangID;
@@ -53760,17 +53761,22 @@ function main() {
         let logicSC = logicActive ? "已套用语法逻辑，" : "";
         let logicEN = logicActive ? "Context logic applied, " : "";
 
+        let visionActive = effectiveVisionLogic;
+        let visionTC = visionActive ? "視界邏輯，" : "";
+        let visionSC = visionActive ? "视界逻辑，" : "";
+        let visionEN = visionActive ? "Vision Logic applied, " : "";
+
         if (isSimulate) {
             return _L(
-                `✅ Conversion simulated (${msgModeNameEN}, ${suffixEN}${logicEN}${count} ops in ${time} s).`,
-                `✅ 模擬運算完成 (${msgModeNameTC}，${suffixTC}${logicTC}共計 ${count} 處變更，耗時 ${time} 秒，未修改原文)`,
-                `✅ 模拟运算完成 (${msgModeNameSC}，${suffixSC}${logicSC}共计 ${count} 处变更，耗时 ${time} 秒，未修改原文)`
+                `✅ Conversion simulated (${msgModeNameEN}, ${suffixEN}${logicEN}${visionEN}${count} ops in ${time} s).`,
+                `✅ 模擬運算完成 (${msgModeNameTC}，${suffixTC}${logicTC}${visionTC}共計 ${count} 處變更，耗時 ${time} 秒，未修改原文)`,
+                `✅ 模拟运算完成 (${msgModeNameSC}，${suffixSC}${logicSC}${visionSC}共计 ${count} 处变更，耗时 ${time} 秒，未修改原文)`
             );
         } else {
             return _L(
-                `✅ Conversion completed (${msgModeNameEN}, ${suffixEN}${logicEN}${count} ops in ${time} s).`,
-                `✅ 轉換完成 (${msgModeNameTC}，${suffixTC}${logicTC}共取代 ${count} 處，耗時 ${time} 秒)`,
-                `✅ 转换完成 (${msgModeNameSC}，${suffixSC}${logicSC}共替换 ${count} 处，耗时 ${time} 秒)`
+                `✅ Conversion completed (${msgModeNameEN}, ${suffixEN}${logicEN}${visionEN}${count} ops in ${time} s).`,
+                `✅ 轉換完成 (${msgModeNameTC}，${suffixTC}${logicTC}${visionTC}共取代 ${count} 處，耗時 ${time} 秒)`,
+                `✅ 转换完成 (${msgModeNameSC}，${suffixSC}${logicSC}${visionSC}共替换 ${count} 处，耗时 ${time} 秒)`
             );
         }
     };
@@ -53807,6 +53813,7 @@ function main() {
     const topX = document.selection.GetTopPointX(eePosLogical);
     const bottomY = document.selection.GetBottomPointY(eePosLogical);
     const bottomX = document.selection.GetBottomPointX(eePosLogical);
+    let realBottomX = bottomX, realBottomY = bottomY;
     const selectedLines = bottomY - topY + 1;
     const selectedWidth = Math.abs(bottomX - topX);
 
@@ -53825,7 +53832,7 @@ function main() {
     const fmtN = (num) => num.toLocaleString('en-US');
 
     if (txtlen !== -1) {
-        // A. 模擬模式攔截 (200 字元)，選取內容過多會不易比對
+        // A. 模擬模式攔截 (200 字元)
         if (isSimulate && txtlen > 200) {
             status = "";
                 alert(_L(
@@ -54012,37 +54019,51 @@ function main() {
         return res;
     };
 
-    // 新增 ⚓ContextLogic Anchor：處理交叉歧義與雙關陷阱
-    const ContextLogicAnchor = {
-    "个中": true, "个旧": true,
-    "了如": true, "了望": true, "了然": true, "了解": true, "明了": true,
-    "有云": true, "小云": true,
-    "冲压": true, "冲床": true, "冲来": true, "冲到": true, "冲上": true, "冲压机": true, "水一冲": true,
-    "不准": true, "准用": true,
-    "几子": true, "小几": true,
-    "一出": true, "第一出": true, "第二出": true, "第三出": true, "第四出": true, "第五出": true, "第六出": true, "第七出": true, "第八出": true, "第九出": true, "第十出": true,
-    "别嘴": true, "别强": true, "别扭": true, "别气": true, "别着": true,
-    "刮了": true, "刮去": true, "刮走": true, "刮着": true, "刮得": true,
-    "制面": true,
-    "厂部": true, "广部": true,
-    "乱发": true, "发色": true, "生发": true, "发卷": true, "额发": true, "金发": true,
-    "那只": true, "这只": true, "哪只": true, "每只": true, "首只": true, "换只": true, "是只": true, "鸡只": true, "猪只": true, "牛只": true,
-    "天后": true,
-    "不复": true, "回复": true, "往复": true, "复合": true, "行复": true, "更复": true, "办复": true, "开复": true,
-    "不干": true, "相干": true, "干他": true, "干你": true, "干她": true, "干我": true, "干了": true, "所干": true, "干的": true,
-    "并成": true, "并为": true,
-    "大曲": true,
-    "此系": true,
-    "胡同": true,
-    "海里": true,
-    "下面": true, "冷面": true, "白面": true, "面包": true, "片面": true,
-    "愈合": true,
-    "马表": true,
-    "全彩": true,
-    "卷轴": true, "卷上": true,
-    "好困": true,
-    "背人": true, "背他": true, "背你": true, "背来": true, "背债": true, "背包": true, "背回": true, "背她": true, "背带": true, "背我": true, "背榜": true, "背物": true, "背着": true, "背筐": true, "背篓": true, "背负": true, "背走": true,
-    };
+    // 新增 ⚓Context Logic Anchors：處理交叉歧義與雙關陷阱
+    const ContextLogicAnchors = new Set([
+    "个中", "个旧",
+    "了如", "了望", "了然", "了解", "明了",
+    "有云", "小云",
+    "借甚", "借资",
+    "冲来", "冲到", "冲上", "水一冲",
+    "不准", "准用",
+    "几子", "小几", "方几", "凭几", "条几", "长几", "高几", "矮几", "桌几", "伏几",
+    "一出",
+    "别嘴", "别强", "别扭", "别气", "别着",
+    "刮了", "刮去", "刮走", "刮着", "刮得",
+    "制面",
+    "厂部", "广部", "崖广",
+    "乱发", "发色", "生发", "发卷", "额发", "金发",
+    "那只", "这只", "哪只", "每只", "首只", "换只", "是只", "鸡只", "猪只", "牛只",
+    "天后",
+    "不复", "回复", "往复", "复合", "行复", "更复", "办复", "开复",
+    "不干", "相干", "干他", "干你", "干她", "干我", "干了", "所干", "干的",
+    "并成", "并为",
+    "大曲",
+    "此系",
+    "胡同",
+    "海里",
+    "冷面", "白面", "片面",
+    "愈合",
+    "全彩",
+    "卷轴", "卷上",
+    "背人", "背他", "背你", "背来", "背债", "背包", "背回", "背她", "背带", "背我", "背榜", "背物", "背着", "背筐", "背篓", "背负", "背走",
+    "万旗", "占万",
+    "价古",
+    "筑前", "筑北", "筑后", "筑西",
+    ]);
+
+    // 新增 🔭 Vision Logic Anchors: 視界邏輯定錨名單
+    const VisionAnchors = new Set([
+    "第一出", "第二出", "第三出", "第四出", "第五出", "第六出", "第七出", "第八出", "第九出", "第十出", "一出剧", "一出戏",
+    "被发", "括发", "直发", "肤发", "断发", "上面", "下面", "下面条", "面包", "好困", "发困", "小价", "良价", "贵价", "马表", "米制",
+    ]);
+
+    // 📙 Vision Vocabs: 視界邏輯專用詞庫
+    const VisionVocabs = new Set([
+    "包含", "包围", "包容", "包容", "包庇", "包括", "包浆", "包涵", "包着", "包膜", "包裹", "包覆",
+    "条件", "条例", "条列", "条文", "条款", "条码", "点化", "剧院", "戏院", "发寒", "发凉", "行吟",
+    ]);
 
     const parseMainData = (rawStr) => {
     if (!rawStr) return;
@@ -54053,7 +54074,7 @@ function main() {
         let tabIndex = line.indexOf("\t");
         if (tabIndex === -1) continue;
         let key = line.substring(0, tabIndex);
-        if (effectiveContextLogic && ContextLogicAnchor[key] === true) continue;
+        if (effectiveContextLogic && ContextLogicAnchors.has(key)) continue;
         let rawTarget = line.substring(tabIndex + 1).replace(/\r/g, "");
         let firstTarget = rawTarget.split(" ")[0];
 
@@ -54148,27 +54169,27 @@ const ContextLogic = {
     // 5. 余	餘 余
     0x4F59: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",n2=t.charAt(i+2)||" ";if("姓邱嗟".indexOf(p)!==-1||sn2.indexOf("|"+n+n2+"|")!==-1||(n==="以"&&n2==="为")||"陈玠".indexOf(n)!==-1)return"余";return"餘";},
     // 6. 借	借 藉
-    // 0x501F: 僅處理交叉歧義與雙關陷阱。
+    0x501F: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",n2=t.charAt(i+2)||" ",n3=t.charAt(i+3)||" ";return((n==="甚"&&"麼么".indexOf(n2)===-1)||(n==="資"&&"金料".indexOf(n2)===-1))?"藉":"借";},
     // 7. 冲	衝 沖
-    0x51B2: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",n2=t.charAt(i+2)||" ",pp=t.charAt(i-2)||" ";return(n!=="击"&&("洗净澹融煞咖奶调杯壶瓶罐牛点马澡淋凉干成岸滩向酒巧床头压".indexOf(n)!==-1||"气雨瀑海河水船潮汐流".indexOf(p)!==-1||"气雨瀑海河水船潮汐流马".indexOf(pp)!==-1||(n==="了"&&"个马一冲".indexOf(n2)!==-1)||(n==="干"&&n2==="净")||(p==="当"&&pp!=="应"&&n!=="第")))?"沖":"衝";},
+    0x51B2: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",n2=t.charAt(i+2)||" ",pp=t.charAt(i-2)||" ";return(n!=="击"&&("净澹融煞咖奶调杯壶瓶罐牛点马淋成岸滩向酒巧头".indexOf(n)!==-1||"气雨瀑海河水船潮汐流".indexOf(p)!==-1||"气雨瀑海河水船潮汐流马".indexOf(pp)!==-1||(n==="了"&&"个马一冲".indexOf(n2)!==-1)||(n==="干"&&n2==="净")||(p==="当"&&pp!=="应"&&n!=="第")))?"沖":"衝";},
     // 8. 准	準 准
     0x51C6: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",n2=t.charAt(i+2)||" ",pp=t.charAt(i-2)||" ";return((p==="不"&&"哪什几么".indexOf(n)===-1&&"说拿算估瞄看猜测真并断占卜卦得射量认钟表尺秤听很级".indexOf(pp)===-1)||"隆照谁我你他她们只请".indexOf(p)!==-1||(n==="不"&&n2==="准"))?"准":"準";},
     // 9. 几	幾 几
-    0x51E0: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return("琴禅炕".indexOf(p)!==-1||(n==="子"&&"条小".indexOf(p)!==-1))?"几":"幾";},
+    0x51E0: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return ("琴禅炕凭小方条长高桌伏矮".indexOf(p)!==-1 && "周公英呎尺厘丈辈".indexOf(n)===-1) ? "几" : "幾";},
     // 10. 出	出 齣
-    0x51FA: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",n2=t.charAt(i+2)||" ",pp=t.charAt(i-2)||" ";return((m+"这那哪整半").indexOf(p)!==-1&&(("戏剧".indexOf(n)!==-1&&"院场".indexOf(n2)===-1)||(n==="电"&&n2==="影")||(n==="："&&pp==="第")))?"齣":"出";},
+    0x51FA: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",n2=t.charAt(i+2)||" ",n3=t.charAt(i+3)||" ",pp=t.charAt(i-2)||" ";return((m+"这那哪整半").indexOf(p)!==-1&&(("戏剧".indexOf(n)!==-1&&"院场".indexOf(n2)===-1)||(n==="电"&&n2==="影"&&n3!=="院")||(n==="："&&pp==="第")))?"齣":"出";},
     // 11. 别	別 彆
-    0x522B: function(i,t){var n=t.charAt(i+1)||" ",nn=t.charAt(i+2)||" ",nnn=t.charAt(i+3)||" ";return("强扭气着嘴".indexOf(n)!==-1&&("强扭气着嘴腰屁身肢脖头手脚动走转了死馁我你他她它人求迫笑急凉忙火硬贱臭甜多碎快馋歪坏到过伤恼愤空虚喘鼓得出咱谁巴噗怒软笨滑辩占攻盛炸呼慌迷魔捏打奸送贫严松撑忍推疯闷嘟相道意曲过欠干买卖粗短笔墨结要暴制拉脸开塞衰力边刁巧行闯摆掉冲话实重对痒取留紧亏度吞陆眼毒乖拆索渡住断脱派量昂调想手尖笑皮晁一个".indexOf(nn)===-1||(n==="着"&&nn==="一"&&"口股".indexOf(nnn)!==-1)))?"彆":"別";},
+    0x522B: function(i,t){var n=t.charAt(i+1)||" ",n2=t.charAt(i+2)||" ",n3=t.charAt(i+3)||" ";return("强扭气着嘴".indexOf(n)!==-1&&("强扭气着嘴腰屁身肢脖头手脚动走转了死馁我你他她它人求迫笑急凉忙火硬贱臭甜多碎快馋歪坏到过伤恼愤空虚喘鼓得出咱谁巴噗怒软笨滑辩占攻盛炸呼慌迷魔捏打奸送贫严松撑忍推疯闷嘟相道意曲过欠干买卖粗短笔墨结要暴制拉脸开塞衰力边刁巧行闯摆掉冲话实重对痒取留紧亏度吞陆眼毒乖拆索渡住断脱派量昂调想手尖笑皮晁一个".indexOf(n2)===-1||(n==="着"&&n2==="一"&&"口股".indexOf(n3)!==-1)))?"彆":"別";},
     // 12. 刮	刮 颳
     0x522E: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",n2=t.charAt(i+2)||" ";return("台颱飓阵龙".indexOf(n)!==-1||(n==="了"&&"风台".indexOf(n2)!==-1)||(n==="得"&&"大猛".indexOf(n2)!==-1))?"颳":"刮";},
     // 13. 制	制 製
-    0x5236: function(i,t){var pp=t.charAt(i-2)||" ",p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return((p==="国"&&"泰本英德法俄意".indexOf(pp)!==-1)||(p==="线"&&"毛铁".indexOf(pp)!==-1)||(p==="器"&&"机电陶".indexOf(pp)!==-1)||(p==="金"&&("纯合种".indexOf(pp)!==-1||"造成作物饰笔".indexOf(n)!==-1))||(p==="编"&&n==="物")||"锌毛麦粉乳奶石牙芦荟苇蔗籐柳棕桃板檀珊瑚珍珠泥塑玻布羽丝绒湾果晶毡骨髓鬃岩扎璃瓷绸胶麻煎".indexOf(p)!==-1||"皮碟果酱糕豆篮筐肥刀香油裘雪奶乳酪氢玻".indexOf(n)!==-1)?"製":"制";},
+    0x5236: function(i,t){var pp=t.charAt(i-2)||" ",p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",nn=t.charAt(i+2)||" ";return((n==="面"&&"包条疙肠饼食料纱".indexOf(nn)!==-1)||(p==="国"&&"泰本英德法俄意".indexOf(pp)!==-1)||(p==="线"&&"毛铁".indexOf(pp)!==-1)||(p==="器"&&"机电陶".indexOf(pp)!==-1)||(p==="金"&&("纯合种".indexOf(pp)!==-1||"造成作物饰笔".indexOf(n)!==-1))||(p==="编"&&n==="物")||"锌毛麦粉乳奶石牙芦荟苇蔗籐柳棕桃板檀珊瑚珍珠泥塑玻布羽丝绒湾果晶毡骨髓鬃岩扎璃瓷绸胶麻煎龟".indexOf(p)!==-1||"皮碟果酱糕豆篮筐肥刀香油裘雪奶乳酪氢玻".indexOf(n)!==-1)?"製":"制";},
     // 14. 厂	廠 厂
     // 0x5382: 僅處理交叉歧義與雙關陷阱。
     // 15. 历	歷 曆
     0x5386: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return(p==="教"&&(m+"的 ").indexOf(n)!==-1||"文马兰犹林耶主枱".indexOf(p)!==-1&&" 的".indexOf(n)!==-1||"钟鐘".indexOf(n)!==-1)?"曆":"歷";},
     // 16. 发	發 髮
-    0x53D1: function(i,t){var pp=t.charAt(i-2)||" ",p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",n2=t.charAt(i+2)||" ";return(p==="生"&&"不代债券博卡工币录料津考药补讲证诊费邮酬帖件聘粮".indexOf(n)!==-1||p==="乱"&&("脾疯怒愁财货票奖薪电邮信布表".indexOf(n)!==-1||n==="色"&&n2==="情"||n==="文"&&n2==="章"||"贴".indexOf(n)!==-1)||n==="卷"&&"子宗".indexOf(n2)!==-1||n==="色"&&"幕板影显示器".indexOf(p)!==-1||(p==="额"&&"足满金全总差配税员份定限小大超增减名等缺補".indexOf(pp)!==-1&&(m.indexOf(n)!==-1||"工补证料券币代债不".indexOf(n)!==-1))||(p==="金"&&"现资奖薪押礼课稅罚储租赎美".indexOf(pp)!==-1))?"發":((p==="生"&&"贼寇花".indexOf(pp)===-1)||p==="额"||p==="金"||"卷乱修扎插整洁翦松柔鬐鬋髶髹髺髽髾鬃鬄髦".indexOf(p)!==-1||"卡冠缏髲鬄鬈绺色卷垢".indexOf(n)!==-1)?"髮":"發";},
+    0x53D1: function(i,t){var pp=t.charAt(i-2)||" ",p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",n2=t.charAt(i+2)||" ";return(p==="生"&&"不代债券博卡工币录料津考药补讲证诊费邮酬帖件聘粮".indexOf(n)!==-1||p==="乱"&&("脾疯怒愁财货票奖薪电邮信布表消讯E".indexOf(n)!==-1||n==="色"==-1||n==="色"&&n2==="情"||n==="文"&&n2==="章"||"贴".indexOf(n)!==-1)||n==="卷"&&"子宗".indexOf(n2)!==-1||n==="色"&&"幕板影显示器".indexOf(p)!==-1||(p==="额"&&"足满金全总差配税员份定限小大超增减名等缺補".indexOf(pp)!==-1&&(m.indexOf(n)!==-1||"工补证料券币代债不".indexOf(n)!==-1))||(p==="金"&&"现资奖薪押礼课稅罚储租赎美".indexOf(pp)!==-1))?"發":((p==="生"&&"贼寇花".indexOf(pp)===-1)||p==="额"||p==="金"||"卷乱修扎插整洁翦松柔鬐鬋髶髹髺髽髾鬃鬄髦".indexOf(p)!==-1||"卡冠缏髲鬄鬈绺色卷垢".indexOf(n)!==-1)?"髮":"發";},
     // 17. 只	只 隻 祇
     0x53EA: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";if("会能是有好在可须需要想怕求见剩管顾为限凭供懂配得当通待算".indexOf(n)!==-1)return"只";return((m+"这那哪每单双大小多别换是首鸡牛猪").indexOf(p)!==-1||"狼虎狗猫鸭羊马兽禽虫鸟雁雕鹰脚臂耳艇".indexOf(n)!==-1)?"隻":"只";},
     // 18. 台	臺 檯 颱 台
@@ -54184,9 +54205,9 @@ const ContextLogic = {
     // 23. 复	復 複 覆
     0x590D: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",nn=t.charAt(i+2)||" ";if(n==="杂")return"複";if(n==="合")return("材键词杂型".indexOf(nn)!==-1)?"複":"復";if(p==="回")return("体精原国普备装传机到法术药剂道宝魔弹力运动能".indexOf(n)!==-1)?"復":"覆";if("错纷".indexOf(p)!==-1)return"複";if("亡冰巢".indexOf(n)!==-1||"反倾掩".indexOf(p)!==-1)return"覆";return"復";},
     // 24. 姜	姜 薑
-    0x59DC: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return("味粉油水科属".indexOf(n)!==-1||"嫩磨切腌泡烤".indexOf(p)!==-1)?"薑":"姜";},
+    0x59DC: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return("味粉油水科属烯酚制醋葱蕨脆啤人".indexOf(n)!==-1||"嫩鲜磨切腌泡烤醋枸桂橙擂草茈蝶饯".indexOf(p)!==-1)?"薑":"姜";},
     // 25. 干	幹 乾 干
-    0x5E72: function(i,t){var pp=t.charAt(i-2)||" ",p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",nn=t.charAt(i+2)||" ",nnn=t.charAt(i+3)||" ";if("鸭瞪看化夏酒清嘉州扁匏彖枣".indexOf(n)!==-1||"漆墨笔汗血冬肴拍火炮".indexOf(p)!==-1||(p==="发"&&pp==="挥")||(p==="伏"&&pp==="乞")||(n==="了"&&(("这那"+m).indexOf(nn)!==-1&&"坛杯瓶碗樽壶钟盅".indexOf(nnn)!==-1||"啐飕巴泥胶泽壤衣花".indexOf(p)!==-1||("地面都就说也".indexOf(p)!==-1&&"田水溪海嘴巴".indexOf(pp)!==-1)))||(n==="的"&&"所妳你他我人们".indexOf(p)===-1))return"乾";if((p==="所"&&"預涉".indexOf(n)!==-1)||"盾卿旄托".indexOf(n)!==-1||p==="相"||(p==="长"&&"行人延市别別妙午".indexOf(n)!==-1)||("我你妳他她它".indexOf(n)!==-1&&(p==="不"||"们底屁事什甚何".indexOf(nn)!==-1)))return"干";return"幹";},
+    0x5E72: function(i,t){var pp=t.charAt(i-2)||" ",p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",n2=t.charAt(i+2)||" ",n3=t.charAt(i+3)||" ";if("鸭瞪看化夏酒清嘉州扁匏彖枣饼皱盐砌窘粪罄腌葱".indexOf(n)!==-1||"漆墨笔汗血冬肴拍火炮".indexOf(p)!==-1||(p==="发"&&pp==="挥")||(p==="伏"&&pp==="乞")||(n==="了"&&(("这那"+m).indexOf(n2)!==-1&&"坛杯瓶碗樽壶钟盅".indexOf(n3)!==-1||"啐飕巴泥胶泽壤衣花".indexOf(p)!==-1||("地面都就说也".indexOf(p)!==-1&&"田水溪海嘴巴".indexOf(pp)!==-1)))||(n==="的"&&"所妳你他我人们".indexOf(p)===-1))return"乾";if((p==="所"&&"預涉".indexOf(n)!==-1)||"盾卿旄托符禄".indexOf(n)!==-1||p==="相"||(p==="长"&&"行人延市别別妙午".indexOf(n)!==-1)||("我你妳他她它".indexOf(n)!==-1&&(p==="不"||"们底屁事什甚何".indexOf(n2)!==-1)))return"干";return"幹";},
     // 26. 并	並 併
     0x5E76: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",nn=t.charAt(i+2)||" ";if(n==="成")return("功为立就长行全亲婚交名佛双对套仙家形型熟仁约真瘾灾效案".indexOf(nn)!==-1)?"並":"併";if(n==="为")return("了难害善我民此何之非人".indexOf(nn)!==-1)?"並":"併";return((p==="秦"&&n==="六")||(p==="功"&&n==="弃"))?"併":"並";},
     // 27. 征	徵 征
@@ -54210,7 +54231,7 @@ const ContextLogic = {
     // 36. 签	籤 簽
     0x7B7E: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return("核书卡保合协审租契账".indexOf(n)!==-1||"补会亲送副手免拒地".indexOf(p)!==-1)?"簽":"籤";},
     // 37. 系	系 係 繫
-    0x7CFB: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";if("因由属".indexOf(n)!==-1||"均实诚皆全".indexOf(p)!==-1)return"係";if(p==="此")return("统列".indexOf(n)!==-1)?"系":"係";if("鞋袜辫栓悬挂绑鼓襟".indexOf(n)!==-1||"绑扣带悬".indexOf(p)!==-1)return"繫";return"系";},
+    0x7CFB: function(i,t){var p=t.charAt(i-1)||" ",pp=t.charAt(i-2)||" ",n=t.charAt(i+1)||" ",nn=t.charAt(i+2)||" ";if("因由属".indexOf(n)!==-1||"均实诚皆全".indexOf(p)!==-1)return"係";if(p==="此")return("统列".indexOf(n)!==-1)?"系":"係";if("鞋袜辫栓悬挂绑鼓襟".indexOf(n)!==-1||"绑扣带悬".indexOf(p)!==-1||(p==="端"&&"一两".indexOf(pp)!==-1))return"繫";return"系";},
     // 38. 胡	胡 鬍 衚
     0x80E1: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";if(n==="茬渣型"||"拈满捋捻腮撇巴".indexOf(p)!==-1)return"鬍";return "胡";},
     // 39. 脏	髒 臟
@@ -54228,9 +54249,9 @@ const ContextLogic = {
     // 45. 里	裏 里
     0x91CC: function(i,t){var pp=t.charAt(i-2)||" ",p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",nn=t.charAt(i+2)||" ";if(p==="海"){if(m.indexOf(pp)!==-1||(n==="的"&&"距长范航".indexOf(nn)!==-1)||"为计作".indexOf(n)!==-1)return"里";return"裡";}return(m.indexOf(p)!==-1)?"里":"裡";},
     // 46. 钟	鍾 鐘 鈡
-    0x949F: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return("历乐罩钓雾禅浮管墙洋桌车套巨笨零殿水沙夜银厨独骨象铷氢氨光考恒祈救报自免生宇遥潮量弥赛离灵械扣排副棋拨楼坛董勤铿顺修饭加摆多残听疏诞造婚买字地钱够此静校音瑚期池号条".indexOf(p)!==-1||"房室铃控槌架绳铭锤型杆壳舌耳花雀鹊鹟鸟虫乳状梵学定坐柎拨滴当角".indexOf(n)!==-1)?"鐘":"鍾";},
+    0x949F: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return("历乐罩钓雾禅浮管墙洋桌车套巨笨零殿水沙夜银厨骨象铷氢氨光考恒祈救报自免生宇遥潮量弥赛离灵械扣排副棋拨楼坛董勤铿顺修饭加多残听疏诞婚买字地钱够此静校音瑚期池号条".indexOf(p)!==-1||"房室铃控槌架绳铭锤型杆壳舌耳花雀鹊鹟鸟虫乳状梵学定坐柎拨滴当角".indexOf(n)!==-1)?"鐘":"鍾";},
     // 47. 面	面 麪
-     0x9762: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return p==="下"?("条包".indexOf(n)!==-1?"麵":"面"):p==="冷"?("相冷幽笑滑演表临地法寒说".indexOf(n)===-1?"麵":"面"):p==="白"?("书无鼯僧霜孔男".indexOf(n)===-1?"麵":"面"):n==="包"?("全内".indexOf(p)===-1?"麵":"面"):("饸醒酱羹抟蘸麦仔".indexOf(p)!==-1||"锅铺馍酵圪龟粻抟".indexOf(n)!==-1)?"麵":"面";},
+     0x9762: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return p==="冷"?("相冷幽笑滑演表临地法寒说".indexOf(n)===-1?"麵":"面"):p==="白"?("书无鼯僧霜孔男".indexOf(n)===-1?"麵":"面"):n==="包"?("全内".indexOf(p)===-1?"麵":"面"):("饸醒酱羹抟蘸麦仔".indexOf(p)!==-1||"锅铺馍酵圪龟粻抟".indexOf(n)!==-1)?"麵":"面";},
     // 48. 须	須 鬚
     0x987B: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return("捋撚髯鬓颌鬈黪翦剔".indexOf(p)!==-1||"鳚鳕梢𬶏䴕鬓鳂癣髭鬣鲃".indexOf(n)!==-1)?"鬚":"須";},
     // 49. 愈	愈 癒
@@ -54239,12 +54260,18 @@ const ContextLogic = {
     0x624E: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return("缠绞缚系绷".indexOf(p)!==-1||"辫裤发绳制捆束".indexOf(n)!==-1)?"紮":"扎";},
     // 51. 卷	卷 捲
     0x5377: function(i,t){var pp=t.charAt(i-2)||" ",p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";if(p==="发"&&"子宗".indexOf(n)===-1)return"捲";if(n==="轴"&&"垂直|纵向|横向|水平|电脑|萤幕|设定".indexOf(pp+p)!==-1)return"捲";if(n==="上"){if("》．(".indexOf(p)!==-1&&"例传则咏品商契子存实志抄断求注源牍物璞异疏章簿经编纂义羹考腴要规解觿记注话语谈论谱议钞录集事史草补丛".indexOf(pp)!==-1)return"卷";return"捲";}return"卷";},
-    // 52. 困	困 睏: 僅依照預設 8 組語境組合，其餘回歸「困」以避開「受困」歧義。
-    0x56F0: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return("发好爱疲".indexOf(p)!==-1||"乏倦意觉".indexOf(n)!==-1)?"睏":"困";},
+    // 52. 困	困 睏
+    //0x56F0: 改用視界邏輯處理。
     // 53. 背	背 揹
     // 0x80CC: 僅處理交叉歧義與雙關陷阱。
     // 54. 托	託 托
     0x6258: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return ("承木蠖果支叶斜骚干鎗".indexOf(p)!==-1||("在着著钵碗婴上的尼巴贝".indexOf(n)!==-1&&"拜寄委依请推假".indexOf(p)===-1))?"托":"託";},
+    // 55. 广	廣 广
+    0x5E7F: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return (p==="崖"&&"大阔".indexOf(n)===-1)?"广":"廣";},
+    // 56. 价	價 价
+    0x4EF7: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return (n==="古" && "估售".indexOf(p)===-1) ? "价" : "價";},
+    // 57. 筑	築 筑
+    0x7B51: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return ("前北后西".indexOf(n)!==-1&&"修建".indexOf(p)===-1)?"筑":"築";},
 };
 
     // === 新增繁轉簡語法邏輯 ContextLogic_T2S 引擎 ===
@@ -54306,6 +54333,92 @@ const ContextLogic_T2S = {
                 }
                 j++;
             }
+
+    if (effectiveVisionLogic && longestMatchLen > 1) {
+        
+        var anchorLen = longestMatchLen;
+        var foundAnchor = null;
+
+        // 1. [前綴掃描] 使用 .has() 檢查 Set
+        while (anchorLen > 1) {
+            var currentPrefix = srcText.substring(i, i + anchorLen);
+            if (VisionAnchors.has(currentPrefix)) {
+                foundAnchor = currentPrefix;
+                break; 
+            }
+            anchorLen--;
+        }
+
+    if (foundAnchor) {
+        if (longestMatchLen >=4 && longestMatchLen > anchorLen) {
+            foundAnchor = null;
+        }
+    }
+        if (foundAnchor) {
+            var visionIdx = i + anchorLen - 1; 
+            var visionNode = rootNodes[srcText.charCodeAt(visionIdx)];
+            var visionWord = "";
+            
+            // --- 2. 第一層：找視界詞典 (同時檢查主詞典與 Set) ---
+            var k = visionIdx + 1;
+            while (k < textLen) {
+                visionNode = visionNode ? visionNode.c.get(srcText.charCodeAt(k)) : null;
+                var currentSub = srcText.substring(visionIdx, k + 1);
+                if ((visionNode && visionNode.v !== null) || VisionVocabs.has(currentSub)) {
+                    visionWord = currentSub;
+                }
+                if (!visionNode && currentSub.length > 6) break;
+                k++;
+            }
+
+            // --- 3. 第二層：全面穩定性檢查 ---
+            if (visionWord !== "") {
+                var isVisionStable = true; 
+                var deepIdx = visionIdx + visionWord.length - 1;
+                var deepNode = rootNodes[srcText.charCodeAt(deepIdx)];
+                var k2 = deepIdx + 1;
+                while (k2 < textLen) {
+                    deepNode = deepNode ? deepNode.c.get(srcText.charCodeAt(k2)) : null;
+                    var deepSub = srcText.substring(deepIdx, k2 + 1);
+                    if ((deepNode && deepNode.v !== null) || VisionVocabs.has(deepSub)) {
+                        isVisionStable = false; 
+                        break;
+                    }
+                    if (!deepNode && deepSub.length > 6) break;
+                    k2++;
+                }
+
+                // --- 4. 最終裁決 (備案截斷邏輯) ---
+                if (isVisionStable) {
+                    var backupLen = anchorLen - 1;
+                    var foundBackup = false;
+                    while (backupLen >= 2) {
+                        if (VisionAnchors.has(srcText.substring(i, i + backupLen))) {
+                            longestMatchLen = backupLen; 
+                            foundBackup = true;
+                            break;
+                        }
+                        backupLen--;
+                    }
+                    if (!foundBackup) longestMatchLen = 1; 
+
+                    // 5. 重新抓取轉換目標字
+                    var finalNode = rootNodes[srcText.charCodeAt(i)];
+                    for (var m = 1; m < longestMatchLen; m++) {
+                        if (!finalNode) break;
+                        finalNode = finalNode.c.get(srcText.charCodeAt(i + m));
+                    }
+                    if (finalNode && finalNode.v !== null) {
+                        longestMatchTarget = finalNode.v;
+                    } else {
+                        longestMatchLen = 1;
+                        longestMatchTarget = srcText.charAt(i);
+                    }
+                    longestMatchOriginal = srcText.substring(i, i + longestMatchLen);
+                }
+            }
+        }
+    }
 
             if (longestMatchLen > 0) {
                 if (i > lastMatchEnd) {
@@ -54725,6 +54838,10 @@ const ContextLogic_T2S = {
                         // 判斷是否寫入
                         if (!isSimulate) {
                             document.selection.Text = res.text;
+                            if (chunk.isLast) {
+                                realBottomX = document.selection.GetActivePointX(eePosLogical);
+                                realBottomY = document.selection.GetActivePointY(eePosLogical);
+                            }
                         }
                         totalReplaced += res.count;
                     } catch (e) {
@@ -54739,8 +54856,8 @@ const ContextLogic_T2S = {
 
         if (!isCSVCellSel) {
             if (!isFilterMode && !isMultiSel) {
-                document.selection.SetActivePoint(eePosLogical, topX, topY);
-                document.selection.SetActivePoint(eePosLogical, bottomX, bottomY, true);
+                document.selection.SetAnchorPoint(eePosLogical, topX, topY);
+                document.selection.SetActivePoint(eePosLogical, realBottomX, realBottomY, true);
             } else {
                 document.selection.SetActivePoint(eePosLogical, topX, topY);
             }
@@ -54748,6 +54865,7 @@ const ContextLogic_T2S = {
 
     } finally {
         try { CombineHistory = bOrgCombine; } catch(e) {} 
+        Sleep(60);
         try { Redraw = true; } catch(e) {}
 
         // 若為模擬模式，不執行 CSV 的介面重繪
