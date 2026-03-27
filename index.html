@@ -473,6 +473,9 @@ Object.defineProperty(window, 'status', {
     configurable: true
 });
 
+// 🌟 補上虛擬的 Sleep 函數，讓巨集不會因為找不到它而報錯
+window.Sleep = function(ms) {};
+
 const shell = {
     GetKeyState: (code) => {
         if (code === 0x10) return document.getElementById('chkPure').checked ? -1 : 0;
