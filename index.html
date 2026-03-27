@@ -496,8 +496,19 @@ const mockDocument = {
         get TextLength() { return this.Text.length; },
         get IsEmpty() { return this.Text.length === 0; },
         SelectWord: () => {}, Mode: 1, Count: 1,
-        GetTopPointY: () => 1, GetTopPointX: () => 1, GetBottomPointY: () => 1, GetBottomPointX: () => 1,
-        SetActivePoint: () => {}, SetAnchorPoint: () => {}
+        
+        // --- 最簡座標修正：賦予虛擬座標記憶能力，打破無限迴圈 ---
+        _x: 1, _y: 1,
+        GetTopPointX: function() { return this._x; },
+        GetTopPointY: function() { return this._y; },
+        GetBottomPointX: function() { return this._x; },
+        GetBottomPointY: function() { return this._y; },
+        GetActivePointX: function() { return this._x; },
+        GetActivePointY: function() { return this._y; },
+        SetActivePoint: function(pos, x, y, extend) { this._x = x; this._y = y; },
+        SetAnchorPoint: function(pos, x, y) { this._x = x; this._y = y; },
+        Collapse: () => {} // 防呆
+        // --- 修正結束 ---
     },
     filters: { Count: 0 }, Csv: null, GetLine: () => "", GetCell: () => "", SetCell: () => {}
 };
