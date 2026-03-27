@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EmEditor OpenCC Web Engine</title>
+    <title>EmEditor OpenCC 繁簡轉換</title>
     <style>
         :root {
             --bg-color: #F9F7F3;          
@@ -184,7 +184,7 @@
 <div class="modal-overlay" id="infoModal" onclick="if(event.target === this) toggleModal(false)">
     <div class="modal-content">
         <div class="modal-header">
-            <h3>About EmEditor OpenCC</h3>
+            <h3>About EmEditor OpenCC 繁簡轉換</h3>
             <button class="modal-close" onclick="toggleModal(false)">✖</button>
         </div>
         <div class="modal-body" id="modalBody"></div>
@@ -207,7 +207,7 @@ const i18nDict = {
         modalHTML: `
             <p>本網頁用來模擬在 <strong>EmEditor 環境</strong>下的轉換邏輯。這是一個專為 EmEditor 打造的高效能繁簡轉換工具，核心轉換邏輯與詞庫基於強大的開源專案 OpenCC。</p>
             <div class="code-block">
-                <strong>Project:</strong> OpenCC for EmEditor v0.28<br>
+                <strong>Project:</strong> OpenCC for EmEditor v0.30<br>
                 <strong>Author:</strong> skyuns (<a href="https://github.com/skyuns/EmEditor-OpenCC-Macro" target="_blank">GitHub Repository</a>)<br>
                 <strong>Data Source:</strong> OpenCC (<a href="https://github.com/BYVoid/OpenCC" target="_blank">BYVoid/OpenCC</a>)<br>
                 <strong>License:</strong> Apache License 2.0
@@ -216,7 +216,7 @@ const i18nDict = {
             <hr style="border: 0; border-top: 1px solid #EBEBEB; margin: 15px 0;">
             <strong>⚙️ 轉換流程：</strong>
             <ol style="margin-top: 8px; padding-left: 25px;">
-                <li>讀取主字典映射與例外清單</li><li>封裝構建高效能 <strong>Trie 字典樹</strong></li><li>動態分段執行 FMM (正向最大匹配)</li><li>啟動 <strong>Context Logic (語意邏輯引擎)</strong> 處理歧義</li>
+                <li>讀取主字典映射與例外清單</li><li>封裝構建高效能 <strong>Trie 字典樹</strong></li><li>啟動 <strong>Vision Logic (視界邏輯引擎)</strong> 深度探測</li><li>動態分段執行 FMM (正向最大匹配)</li><li>啟動 <strong>Context Logic (語意邏輯引擎)</strong> 處理歧義</li>
             </ol>
             <div class="tagline">EmEditor-OpenCC-Macro: Precision Conversion, Contextual Perfection.</div>
             <div class="dev-by">Developed by skyuns</div>`
