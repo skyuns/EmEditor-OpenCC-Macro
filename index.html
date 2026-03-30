@@ -6,15 +6,15 @@
     <title>EmEditor OpenCC 繁簡轉換</title>
     <style>
         :root {
-            --bg-color: #F9F7F3;          
+            --bg-color: #F9F7F3;
             --panel-bg: #FFFFFF;
             --text-color: #4A4A4A;
-            --btn-local: #EADCE0;         
-            --btn-s2t: #DDF0ED;           
-            --btn-t2s: #FCECE6;           
-            --btn-s2twp: #E6F3FF;         
-            --btn-tw2sp: #E2F5EE;         
-            --btn-s2te: #FFF6E0;          
+            --btn-local: #EADCE0;
+            --btn-s2t: #DDF0ED;
+            --btn-t2s: #FCECE6;
+            --btn-s2twp: #E6F3FF;
+            --btn-tw2sp: #F2E9F5;
+            --btn-s2te: #FFF6E0;
             --border-radius: 12px;
         }
 
@@ -232,7 +232,7 @@ const i18nDict = {
         modalHTML: `
             <p>本网页用来模拟在 <strong>EmEditor 环境</strong>下的转换逻辑。这是一个专为 EmEditor 打造的高效能繁简转换工具，核心转换逻辑与词库基于强大的开源项目 OpenCC。</p>
             <div class="code-block">
-                <strong>Project:</strong> OpenCC for EmEditor v0.26<br>
+                <strong>Project:</strong> OpenCC for EmEditor v0.30<br>
                 <strong>Author:</strong> skyuns (<a href="https://github.com/skyuns/EmEditor-OpenCC-Macro" target="_blank">GitHub Repository</a>)<br>
                 <strong>Data Source:</strong> OpenCC (<a href="https://github.com/BYVoid/OpenCC" target="_blank">BYVoid/OpenCC</a>)<br>
                 <strong>License:</strong> Apache License 2.0
@@ -241,7 +241,7 @@ const i18nDict = {
             <hr style="border: 0; border-top: 1px solid #EBEBEB; margin: 15px 0;">
             <strong>⚙️ 转换流程：</strong>
             <ol style="margin-top: 8px; padding-left: 25px;">
-                <li>读取主字典映射与例外清单</li><li>封装构建高效能 <strong>Trie 字典树</strong></li><li>动态分段执行 FMM (正向最大匹配)</li><li>启动 <strong>Context Logic (语义逻辑引擎)</strong> 处理歧义</li>
+                <li>读取主字典映射与例外清单</li><li>封装构建高效能 <strong>Trie 字典树</strong></li><li>启动 <strong>Vision Logic (视界逻辑引擎)</strong> 深度探测</li><li>动态分段执行 FMM (正向最大匹配)</li><li>启动 <strong>Context Logic (语义逻辑引擎)</strong> 处理歧义</li>
             </ol>
             <div class="tagline">EmEditor-OpenCC-Macro: Precision Conversion, Contextual Perfection.</div>
             <div class="dev-by">Developed by skyuns</div>`
@@ -257,7 +257,7 @@ const i18nDict = {
         modalHTML: `
             <p>This page simulates the conversion logic within the <strong>EmEditor environment</strong>. It is a high-performance Chinese conversion tool designed for EmEditor, based on the OpenCC project.</p>
             <div class="code-block">
-                <strong>Project:</strong> OpenCC for EmEditor v0.26<br>
+                <strong>Project:</strong> OpenCC for EmEditor v0.30<br>
                 <strong>Author:</strong> skyuns (<a href="https://github.com/skyuns/EmEditor-OpenCC-Macro" target="_blank">GitHub Repository</a>)<br>
                 <strong>Data Source:</strong> OpenCC (<a href="https://github.com/BYVoid/OpenCC" target="_blank">BYVoid/OpenCC</a>)<br>
                 <strong>License:</strong> Apache License 2.0
@@ -266,7 +266,7 @@ const i18nDict = {
             <hr style="border: 0; border-top: 1px solid #EBEBEB; margin: 15px 0;">
             <strong>⚙️ Conversion Process:</strong>
             <ol style="margin-top: 8px; padding-left: 25px;">
-                <li>Load mappings & exceptions</li><li>Build high-performance <strong>Trie Tree</strong></li><li>Execute FMM (Forward Maximum Matching)</li><li>Engage <strong>Context Logic Engine</strong> for disambiguation</li>
+                <li>Load mappings & exceptions</li><li>Build high-performance <strong>Trie Tree</strong></li><li>Initiate <strong>Vision Logic Engine</strong> deep probing</li><li>Execute FMM (Forward Maximum Matching)</li><li>Engage <strong>Context Logic Engine</strong> for disambiguation</li>
             </ol>
             <div class="tagline">EmEditor-OpenCC-Macro: Precision Conversion, Contextual Perfection.</div>
             <div class="dev-by">Developed by skyuns</div>`
@@ -595,9 +595,20 @@ async function loadAndRun(filename) {
     const msgRead = currentLang === 'en' ? `⏳ Loading script ${filename} ...` : (currentLang === 'zh-CN' ? `⏳ 读取脚本 ${filename} ...` : `⏳ 讀取腳本 ${filename} ...`);
     updateStatus(msgRead);
     try {
-        const response = await fetch(filename);
+        // 1. 探測 GitHub 端的 ETag，不下載實體內容
+        const head = await fetch(filename, { method: 'HEAD', cache: 'no-cache' });
+        const currentETag = head.headers.get('ETag');
+        const storageKey = "etag_" + filename;
+        
+        // 2. 比對 localStorage：若 ETag 相同則讀取快取 (force-cache)，否則重新下載並更新快取 (reload)
+        const useCache = currentETag && (localStorage.getItem(storageKey) === currentETag);
+        const response = await fetch(filename, { cache: useCache ? 'force-cache' : 'reload' });
+
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         let code = await response.text();
+
+        // 3. 下載成功後更新 ETag 紀錄，並執行巨集
+        if (currentETag) localStorage.setItem(storageKey, currentETag);
         executeMacroCode(code, filename);
     } catch (error) {
         updateStatus(T('errLoadLocal'), true);
