@@ -38,7 +38,8 @@
         .btn-s2te { background: var(--btn-s2te); color: #7A601A; display: none; }
         .divider { width: 1px; height: 25px; background: #E0E0E0; margin: 0 5px; }
 
-        .options-bar { display: flex; gap: 20px; background: #F8F9FA; padding: 10px 15px; border-radius: 8px; font-size: 14px; border: 1px solid #E9ECEF; flex-wrap: wrap;}
+        .options-bar { display: none; gap: 20px; background: #F8F9FA; padding: 10px 15px; border-radius: 8px; font-size: 14px; border: 1px solid #E9ECEF; flex-wrap: wrap; margin-bottom: 10px;}
+        .options-bar.active { display: flex;}
         .options-bar label { display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; color: #555; font-weight: 500; }
         .options-bar input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; accent-color: #83C5BE; }
 
@@ -131,6 +132,10 @@
             <button class="btn-s2twp" onclick="loadAndRun('S2TWP.jsee')" data-i18n="btnS2TWP">陸 ➔ 台</button>
             <button class="btn-tw2sp" onclick="loadAndRun('TW2SP.jsee')" data-i18n="btnTW2SP">台 ➔ 陸</button>
             <button class="btn-s2te" onclick="loadAndRun('S2TE.jsee')" data-i18n="btnS2TE">簡繁擴充</button>
+            <div class="divider"></div>
+            <button class="btn-mini" onclick="toggleOptions()" style="border-color: #D1D1D1;">
+                <span class="btn-mini-icon">⚙️</span>
+            </button>
         </div>
     </div>
     
@@ -296,6 +301,11 @@ document.addEventListener("DOMContentLoaded", () => {
     document.querySelectorAll('[data-i18n-title]').forEach(el => { el.title = T(el.getAttribute('data-i18n-title')); });
     document.getElementById('modalBody').innerHTML = T('modalHTML');
 });
+
+function toggleOptions() {
+    const bar = document.querySelector('.options-bar');
+    bar.classList.toggle('active');
+}
 
 function toggleModal(show) {
     const modal = document.getElementById('infoModal');
