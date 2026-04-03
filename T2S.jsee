@@ -4,7 +4,7 @@
 #icon="T2S.ico"
 
 /**
- * Project: OpenCC for EmEditor Macro v0.30
+ * Project: OpenCC for EmEditor Macro v0.31
  * Author: skyuns (https://github.com/skyuns/EmEditor-OpenCC-Macro)
  * This macro provides foundational conversion based on the OpenCC core lexicon. Note that results may vary from the official implementation.
  * (本巨集基於 OpenCC 核心詞庫提供基礎繁簡轉換。請注意，轉換結果可能與官方執行版本有所出入。)
@@ -4494,7 +4494,38 @@ const rawTWVariants = `
 齶	顎
 `;
 
-// --- [##新增] Google 翻譯與巨集比對引擎 ---
+// --- [區塊 E：台灣字形修正例外清單] ---
+const rawExceptionData = `
+# 說明：專門攔截並排除 D 區之自動化變更，防止特定詞彙因「過度修正」而失去其原始狀態。(按住 Shift 可停用)
+
+抬	抬
+`;
+
+// --- ## 邏輯資料區 ---
+// ⚓Context Logic Anchors：處理交叉歧義與雙關陷阱
+const ContextLogicAnchors = new Set([
+]);
+
+// === 繁轉簡語法邏輯 ContextLogic_T2S 引擎 ===
+const m = "0123456789０１２３４５６７８９〇一二两三四五六七八九十百千萬億幾數";
+const sn2 = "|老師|先生|小姐|太太|女士|醫生|醫師|夫人|經理|師傅|主席|教授|舉人|大帥|爺爺|老先|奶奶|老太|公公|婆婆|爸爸|媽媽|哥哥|大哥|姐姐|大姐|弟弟|妹妹|姊姊|叔叔|阿姨|幫主|某某|";
+
+const ContextLogic_T2S = {
+// 1. 乾	干 乾
+0x4E7E: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",n2=t.charAt(i+2)||" ";return(("震兌離陽清☰".indexOf(n)!==-1&&(n!=="清"||n2!=="酒")||"為（(".indexOf(n)!==-1&&"天日☰金".indexOf(n2)!==-1||(p==="《"&&n==="》")||p==="☰"||n==="☰"||"朝旋扭顛".indexOf(p)!==-1)&&"喝吃曬烘烤瀝擦弄吹洗".indexOf(p)===-1)?"乾":"干";},
+// 2. 覆	覆 复
+0x8986: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return(n==="函" || "批往敬賜".indexOf(p)!==-1)?"复":"覆";},
+// 3. 藉	藉 借
+0x85C9: function(i,t){var n=t.charAt(i+1)||" ";return("勢題".indexOf(n)!==-1)?"借":"藉";},
+// 4. 鍊	炼 链 𫔀
+0x934A: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return("鋸輪軌帶球齒".indexOf(n)!==-1||"狗貓腳錶表皮珠銅鋼瑙晶車鋁塑膠".indexOf(p)!==-1)?"链":"炼";},
+// 5. 著	著 着
+0x8457: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",n2=t.charAt(i+2)||" ",pp=t.charAt(i-2)||" ";return(p==="合"?("配湊正眼嘴".indexOf(pp)===-1&&"眼嘴你我他是就".indexOf(n)===-1&&("者書文作本論錄的之《〈 ,.。、；：？！)]}\n\r ".indexOf(n)!==-1||((m+"這那哪整半").indexOf(n)!==-1&&"本部冊卷篇".indexOf(n2)!==-1))):("編校".indexOf(p)!==-1?("者作名稱書述錄史說志式於白稿典篇卷的之 ,.。、；：？！)]}\n\r ".indexOf(n)!==-1||((m+"這那哪整半").indexOf(n)!==-1&&"本部冊卷篇".indexOf(n2)!==-1)):("丟享付伴住來修做停傷入分切刮到刷割加印去取叫吃吸吻哭唱唸問喊喝嗅嘗回坐執報塗墊夠完寫帶幫建忘念怨恨想愛感憾成戴打扔托扶批找抄抓抖折抬抱抹拂拄拆拉拍拎拔拖拭拾拿持指按挖捏捧捲掃掛接推掩描提插換揮揹搓搬摔摘摸摺撈撕撞撬撿擁擊擠擦擱擺攔攬收放教敲數是有梳標死殺泡洗活流照熨爬獵玩用留畫發盯省看睡祝空穿窺站笑等終給練罰罵翻聞聽背脫舔舞蓋裁補要見覺訂記許說談請講謝讀讓買賄賣贊走趴跑跑跪跳踢躺辦送逃進過遵選鋪鋸錄鎖開關隨飛騎黏夢趁纏划沿順懷朝沉衝貼".indexOf(p)===-1&&("者作名稱書述錄史說志式於白稿典篇卷".indexOf(n)!==-1||"名巨鉅昭顯原譯撰專論卓新遺傑孤絕所代土".indexOf(p)!==-1))))?"著":"着";},
+// 6. 鍾	钟 锺
+0x937E: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",n2=t.charAt(i+2)||" ";return(p==="姓"||sn2.indexOf("|"+n+n2+"|")!==-1)?"锺":"钟";}
+};
+
+// --- ## Google 翻譯與巨集比對引擎 ---
 async function compareWithGoogle(origText, macroText, modeNames) {
     shell.KeepRunning = true;
 
@@ -4970,7 +5001,7 @@ function main() {
         let logicSC = logicActive ? "已套用语法逻辑，" : "";
         let logicEN = logicActive ? "Context logic applied, " : "";
 
-        let visionActive = effectiveVisionLogic;
+        let visionActive = effectiveVisionLogic && isVisionTriggered;
         let visionTC = visionActive ? "視界邏輯，" : "";
         let visionSC = visionActive ? "视界逻辑，" : "";
         let visionEN = visionActive ? "Vision Logic applied, " : "";
@@ -5228,52 +5259,6 @@ function main() {
         return res;
     };
 
-    // 新增 ⚓Context Logic Anchors：處理交叉歧義與雙關陷阱
-    const ContextLogicAnchors = new Set([
-    "个中", "个旧",
-    "了如", "了望", "了然", "了解", "明了",
-    "有云", "小云",
-    "借甚", "借资",
-    "冲来", "冲到", "冲上", "水一冲",
-    "不准", "准用",
-    "几子", "小几", "方几", "凭几", "条几", "长几", "高几", "矮几", "桌几", "伏几",
-    "一出",
-    "别嘴", "别强", "别扭", "别气", "别着",
-    "刮了", "刮去", "刮走", "刮着", "刮得",
-    "制面",
-    "厂部", "广部", "崖广",
-    "乱发", "发色", "生发", "发卷", "额发", "金发",
-    "那只", "这只", "哪只", "每只", "首只", "换只", "是只", "鸡只", "猪只", "牛只",
-    "天后",
-    "不复", "回复", "往复", "复合", "行复", "更复", "办复", "开复",
-    "不干", "相干", "干他", "干你", "干她", "干我", "干了", "所干", "干的",
-    "并成", "并为",
-    "大曲",
-    "此系",
-    "胡同",
-    "海里",
-    "冷面", "白面", "片面",
-    "愈合",
-    "全彩",
-    "卷轴", "卷上",
-    "背人", "背他", "背你", "背来", "背债", "背包", "背回", "背她", "背带", "背我", "背榜", "背物", "背着", "背筐", "背篓", "背负", "背走",
-    "万旗", "占万",
-    "价古",
-    "筑前", "筑北", "筑后", "筑西",
-    ]);
-
-    // 新增 🔭 Vision Logic Anchors: 視界邏輯定錨名單
-    const VisionAnchors = new Set([
-    "第一出", "第二出", "第三出", "第四出", "第五出", "第六出", "第七出", "第八出", "第九出", "第十出", "一出剧", "一出戏",
-    "被发", "括发", "直发", "肤发", "断发", "上面", "下面", "下面条", "面包", "好困", "发困", "小价", "良价", "贵价", "马表", "米制",
-    ]);
-
-    // 📙 Vision Vocabs: 視界邏輯專用詞庫
-    const VisionVocabs = new Set([
-    "包含", "包围", "包容", "包容", "包庇", "包括", "包浆", "包涵", "包着", "包膜", "包裹", "包覆",
-    "条件", "条例", "条列", "条文", "条款", "条码", "点化", "剧院", "戏院", "发寒", "发凉", "行吟",
-    ]);
-
     const parseMainData = (rawStr) => {
     if (!rawStr) return;
     const lines = rawStr.split("\n");
@@ -5362,143 +5347,6 @@ function main() {
         node.o = key;
     }
 
-    // === 新增簡轉繁語法邏輯 ContextLogic 引擎 ===
-    const m = "0123456789０１２３４５６７８９〇一二两三四五六七八九十百千万亿几数";
-    const sn2 = "|老师|老師|先生|小姐|太太|女士|医生|医师|醫生|醫師|夫人|经理|师傅|經理|師傅|主席|教授|举人|大帅|爷爷|爺爺|老先|奶奶|老太|公公|婆婆|爸爸|妈妈|哥哥|大哥|姐姐|大姐|弟弟|妹妹|姊姊|某某|";
-
-const ContextLogic = {
-    // 1. 个	個 箇
-    0x4E2A: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",nn=t.charAt(i+2)||" ";return((n==="碧"&&"石铁".indexOf(nn)!==-1)||(p==="鸡"&&n==="铁"))?"箇":"個";},
-    // 2. 么	麼 么
-    0x4E48: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";if(n==="喝"&&"怎那什这".indexOf(p)===-1)return"么";return("老小".indexOf(p)!==-1||"妹弟叔姨儿鸡正二三点".indexOf(n)!==-1)?"么":"麼";},
-    // 3. 了	了 瞭
-    0x4E86: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",pp=t.charAt(i-2)||" ";return(p==="明"?"说表证明显照发判查标声点注申简阐探听写分天色光摆挑禀自回伸问朱大时".indexOf(pp)===-1&&n!=="解":"望解然如若哨见".indexOf(n)!==-1&&"办理到掉完好坏死杀给付下上开走出入回起落过洗看听读写白".indexOf(p)===-1)?"瞭":"了";},
-    // 4. 云	雲 云
-    0x4E91: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",n2=t.charAt(i+2)||" ";return((n==="："&&"「『".indexOf(n2)!==-1&&"赵马陈陆".indexOf(p)===-1)||"谚书句传谣词话史答对叹唱笑末旦净丑外俗农皆者常且自老师僧佛仙".indexOf(p)!==-1||"谓道尔城".indexOf(n)!==-1)?"云":"雲";},
-    // 5. 余	餘 余
-    0x4F59: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",n2=t.charAt(i+2)||" ";if("姓邱嗟".indexOf(p)!==-1||sn2.indexOf("|"+n+n2+"|")!==-1||(n==="以"&&n2==="为")||"陈玠".indexOf(n)!==-1)return"余";return"餘";},
-    // 6. 借	借 藉
-    0x501F: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",n2=t.charAt(i+2)||" ",n3=t.charAt(i+3)||" ";return((n==="甚"&&"麼么".indexOf(n2)===-1)||(n==="資"&&"金料".indexOf(n2)===-1))?"藉":"借";},
-    // 7. 冲	衝 沖
-    0x51B2: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",n2=t.charAt(i+2)||" ",pp=t.charAt(i-2)||" ";return(n!=="击"&&("净澹融煞咖奶调杯壶瓶罐牛点马淋成岸滩向酒巧头".indexOf(n)!==-1||"气雨瀑海河水船潮汐流".indexOf(p)!==-1||"气雨瀑海河水船潮汐流马".indexOf(pp)!==-1||(n==="了"&&"个马一冲".indexOf(n2)!==-1)||(n==="干"&&n2==="净")||(p==="当"&&pp!=="应"&&n!=="第")))?"沖":"衝";},
-    // 8. 准	準 准
-    0x51C6: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",n2=t.charAt(i+2)||" ",pp=t.charAt(i-2)||" ";return((p==="不"&&"哪什几么".indexOf(n)===-1&&"说拿算估瞄看猜测真并断占卜卦得射量认钟表尺秤听很级".indexOf(pp)===-1)||"隆照谁我你他她们只请".indexOf(p)!==-1||(n==="不"&&n2==="准"))?"准":"準";},
-    // 9. 几	幾 几
-    0x51E0: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return ("琴禅炕凭小方条长高桌伏矮".indexOf(p)!==-1 && "周公英呎尺厘丈辈".indexOf(n)===-1) ? "几" : "幾";},
-    // 10. 出	出 齣
-    0x51FA: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",n2=t.charAt(i+2)||" ",n3=t.charAt(i+3)||" ",pp=t.charAt(i-2)||" ";return((m+"这那哪整半").indexOf(p)!==-1&&(("戏剧".indexOf(n)!==-1&&"院场".indexOf(n2)===-1)||(n==="电"&&n2==="影"&&n3!=="院")||(n==="："&&pp==="第")))?"齣":"出";},
-    // 11. 别	別 彆
-    0x522B: function(i,t){var n=t.charAt(i+1)||" ",n2=t.charAt(i+2)||" ",n3=t.charAt(i+3)||" ";return("强扭气着嘴".indexOf(n)!==-1&&("强扭气着嘴腰屁身肢脖头手脚动走转了死馁我你他她它人求迫笑急凉忙火硬贱臭甜多碎快馋歪坏到过伤恼愤空虚喘鼓得出咱谁巴噗怒软笨滑辩占攻盛炸呼慌迷魔捏打奸送贫严松撑忍推疯闷嘟相道意曲过欠干买卖粗短笔墨结要暴制拉脸开塞衰力边刁巧行闯摆掉冲话实重对痒取留紧亏度吞陆眼毒乖拆索渡住断脱派量昂调想手尖笑皮晁一个".indexOf(n2)===-1||(n==="着"&&n2==="一"&&"口股".indexOf(n3)!==-1)))?"彆":"別";},
-    // 12. 刮	刮 颳
-    0x522E: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",n2=t.charAt(i+2)||" ";return("台颱飓阵龙".indexOf(n)!==-1||(n==="了"&&"风台".indexOf(n2)!==-1)||(n==="得"&&"大猛".indexOf(n2)!==-1))?"颳":"刮";},
-    // 13. 制	制 製
-    0x5236: function(i,t){var pp=t.charAt(i-2)||" ",p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",nn=t.charAt(i+2)||" ";return((n==="面"&&"包条疙肠饼食料纱".indexOf(nn)!==-1)||(p==="国"&&"泰本英德法俄意".indexOf(pp)!==-1)||(p==="线"&&"毛铁".indexOf(pp)!==-1)||(p==="器"&&"机电陶".indexOf(pp)!==-1)||(p==="金"&&("纯合种".indexOf(pp)!==-1||"造成作物饰笔".indexOf(n)!==-1))||(p==="编"&&n==="物")||"锌毛麦粉乳奶石牙芦荟苇蔗籐柳棕桃板檀珊瑚珍珠泥塑玻布羽丝绒湾果晶毡骨髓鬃岩扎璃瓷绸胶麻煎龟".indexOf(p)!==-1||"皮碟果酱糕豆篮筐肥刀香油裘雪奶乳酪氢玻".indexOf(n)!==-1)?"製":"制";},
-    // 14. 厂	廠 厂
-    // 0x5382: 僅處理交叉歧義與雙關陷阱。
-    // 15. 历	歷 曆
-    0x5386: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return(p==="教"&&(m+"的 ").indexOf(n)!==-1||"文马兰犹林耶主枱".indexOf(p)!==-1&&" 的".indexOf(n)!==-1||"钟鐘".indexOf(n)!==-1)?"曆":"歷";},
-    // 16. 发	發 髮
-    0x53D1: function(i,t){var pp=t.charAt(i-2)||" ",p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",n2=t.charAt(i+2)||" ";return(p==="生"&&"不代债券博卡工币录料津考药补讲证诊费邮酬帖件聘粮".indexOf(n)!==-1||p==="乱"&&("脾疯怒愁财货票奖薪电邮信布表消讯E".indexOf(n)!==-1||n==="色"==-1||n==="色"&&n2==="情"||n==="文"&&n2==="章"||"贴".indexOf(n)!==-1)||n==="卷"&&"子宗".indexOf(n2)!==-1||n==="色"&&"幕板影显示器".indexOf(p)!==-1||(p==="额"&&"足满金全总差配税员份定限小大超增减名等缺補".indexOf(pp)!==-1&&(m.indexOf(n)!==-1||"工补证料券币代债不".indexOf(n)!==-1))||(p==="金"&&"现资奖薪押礼课稅罚储租赎美".indexOf(pp)!==-1))?"發":((p==="生"&&"贼寇花".indexOf(pp)===-1)||p==="额"||p==="金"||"卷乱修扎插整洁翦松柔鬐鬋髶髹髺髽髾鬃鬄髦".indexOf(p)!==-1||"卡冠缏髲鬄鬈绺色卷垢".indexOf(n)!==-1)?"髮":"發";},
-    // 17. 只	只 隻 祇
-    0x53EA: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";if("会能是有好在可须需要想怕求见剩管顾为限凭供懂配得当通待算".indexOf(n)!==-1)return"只";return((m+"这那哪每单双大小多别换是首鸡牛猪").indexOf(p)!==-1||"狼虎狗猫鸭羊马兽禽虫鸟雁雕鹰脚臂耳艇".indexOf(n)!==-1)?"隻":"只";},
-    // 18. 台	臺 檯 颱 台
-    0x53F0: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return("刮秋".indexOf(p)!==-1||"风".indexOf(n)!==-1)?"颱":"臺";},
-    // 19. 后	後 后
-    0x540E: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",pp=t.charAt(i-2)||" ",ppp=t.charAt(i-3)||" ";if(p==="天"){if((m+"半明今昨冬秋夏春").indexOf(pp)!==-1||(pp==="期"&&ppp==="星")||(pp==="拜"&&ppp==="礼"))return"後";return"后";}return("圣尊册".indexOf(p)!==-1||n==="族")?"后":"後";},
-    // 20. 咸	鹹 咸
-    0x54B8: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return("荐谓仰诵睹畏叩悦惊黜竭秩平腓服恩淳命卦秦京丘康韵熙姣举执讳".indexOf(n)!==-1||("碧傅崔包陈姓官士".indexOf(p)!==-1&&"酥饼鸡鸭猪牛香甜贝泡塔巴舒豆奶面风".indexOf(n)===-1))?"咸":"鹹";},
-    // 21. 喂	喂 餵
-    0x5582: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",n2=t.charAt(i+2)||" ";return("亲子瓶匙勺杓乳父母爸妈爷奶饭草料肉自动勤他手上午侧躺".indexOf(p)!==-1||"大幼点些以这那入人他她吃父母爸妈爷奶祖孙孩婴宝药汤进服在往到肚毒鲨狮鹰鸽兔猫猴蚂家牲血水肉鸟粮草剑招".indexOf(n)!==-1||(n==="小"&&"李王张陈刘林明吴刘赵郭蔡".indexOf(n2)===-1))?"餵":"喂";},
-    // 22. 坛	壇 罈
-    0x575B: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return((m+"半菜水酱盐腌油泥瓷陶龄").indexOf(p)!==-1||"罐装".indexOf(n)!==-1)?"罈":"壇";},
-    // 23. 复	復 複 覆
-    0x590D: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",nn=t.charAt(i+2)||" ";if(n==="杂")return"複";if(n==="合")return("材键词杂型".indexOf(nn)!==-1)?"複":"復";if(p==="回")return("体精原国普备装传机到法术药剂道宝魔弹力运动能".indexOf(n)!==-1)?"復":"覆";if("错纷".indexOf(p)!==-1)return"複";if("亡冰巢".indexOf(n)!==-1||"反倾掩".indexOf(p)!==-1)return"覆";return"復";},
-    // 24. 姜	姜 薑
-    0x59DC: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return("味粉油水科属烯酚制醋葱蕨脆啤人".indexOf(n)!==-1||"嫩鲜磨切腌泡烤醋枸桂橙擂草茈蝶饯".indexOf(p)!==-1)?"薑":"姜";},
-    // 25. 干	幹 乾 干
-    0x5E72: function(i,t){var pp=t.charAt(i-2)||" ",p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",n2=t.charAt(i+2)||" ",n3=t.charAt(i+3)||" ";if("鸭瞪看化夏酒清嘉州扁匏彖枣饼皱盐砌窘粪罄腌葱".indexOf(n)!==-1||"漆墨笔汗血冬肴拍火炮".indexOf(p)!==-1||(p==="发"&&pp==="挥")||(p==="伏"&&pp==="乞")||(n==="了"&&(("这那"+m).indexOf(n2)!==-1&&"坛杯瓶碗樽壶钟盅".indexOf(n3)!==-1||"啐飕巴泥胶泽壤衣花".indexOf(p)!==-1||("地面都就说也".indexOf(p)!==-1&&"田水溪海嘴巴".indexOf(pp)!==-1)))||(n==="的"&&"所妳你他我人们".indexOf(p)===-1))return"乾";if((p==="所"&&"預涉".indexOf(n)!==-1)||"盾卿旄托符禄".indexOf(n)!==-1||p==="相"||(p==="长"&&"行人延市别別妙午".indexOf(n)!==-1)||("我你妳他她它".indexOf(n)!==-1&&(p==="不"||"们底屁事什甚何".indexOf(n2)!==-1)))return"干";return"幹";},
-    // 26. 并	並 併
-    0x5E76: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",nn=t.charAt(i+2)||" ";if(n==="成")return("功为立就长行全亲婚交名佛双对套仙家形型熟仁约真瘾灾效案".indexOf(nn)!==-1)?"並":"併";if(n==="为")return("了难害善我民此何之非人".indexOf(nn)!==-1)?"並":"併";return((p==="秦"&&n==="六")||(p==="功"&&n==="弃"))?"併":"並";},
-    // 27. 征	徵 征
-    0x5F81: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return("东南西北路客棹鸿辽辔骖".indexOf(n)!==-1||"从随胤".indexOf(p)!==-1)?"征":"徵";},
-    // 28. 当	當 噹
-    0x5F53: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return("咣哐砰咯咚铃玎".indexOf(p)!==-1||n==="啷")?"噹":"當";},
-    // 29. 御	御 禦
-    0x5FA1: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",nn=t.charAt(i+2)||" ";if("灾难凶冬羌虏".indexOf(n)!==-1||"屏掩戍".indexOf(p)!==-1)return"禦";if(n==="强"&&nn==="敌")return"禦";return"御";},
-    // 30. 斗	鬥 斗
-    0x6597: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return((m+"斛米铲壳煴量耧鲱耙").indexOf(p)!==-1||"秤杓魁米蓬斛粟粮衡枢筐姆".indexOf(n)!==-1)?"斗":"鬥";},
-    // 31. 曲	曲 麴
-    0x66F2: function(i,t){var pp=t.charAt(i-2)||" ",p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";if(p==="大")return("酒酿饼".indexOf(n)!==-1||"门祖年装蓝斤河瓶".indexOf(pp)!==-1||(pp===" "&&" ,.，。！？".indexOf(n)!==-1))?"麴":"曲";if("琴戏歌曲".indexOf(p)!==-1)return"曲";return("饼种霉尘菌".indexOf(n)!==-1||"酒麦酿米豆".indexOf(p)!==-1)?"麴":"曲";},
-    // 32. 松	松 鬆
-    0x677E: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return("鸡虾耙弹".indexOf(p)!==-1||"度".indexOf(n)!==-1)?"鬆":"松";},
-    // 33. 涂	塗 涂
-    0x6D82: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",n2=t.charAt(i+2)||" ";if(p==="姓"||sn2.indexOf("|"+n+n2+"|")!==-1)return"涂";return"塗";},
-    // 34. 注	注 註
-    0x6CE8: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",nn=t.charAt(i+2)||" ";if("一二三四五六七八九十".indexOf(n)!==-1&&(nn==="："||nn===":"||(p==="（"&&nn==="）")))return "註";if(p==="〔"&&n==="〕")return "註";return("考按校".indexOf(p)!==-1||"语".indexOf(n)!==-1)?"註":"注";},
-    // 35. 游	遊 游
-    0x6E38: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",nn=t.charAt(i+2)||" ";return(("里裡".indexOf(p)!==-1&&("的是着著"+m).indexOf(n)!==-1)||(("每能先".indexOf(p)!==-1)&&m.indexOf(n)!==-1&&(m+"圈米里公英尺呎码").indexOf(nn)!==-1)||"蝶隙禽蛇".indexOf(n)!==-1||"泳".indexOf(p)!==-1)?"游":"遊";},
-    // 36. 签	籤 簽
-    0x7B7E: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return("核书卡保合协审租契账".indexOf(n)!==-1||"补会亲送副手免拒地".indexOf(p)!==-1)?"簽":"籤";},
-    // 37. 系	系 係 繫
-    0x7CFB: function(i,t){var p=t.charAt(i-1)||" ",pp=t.charAt(i-2)||" ",n=t.charAt(i+1)||" ",nn=t.charAt(i+2)||" ";if("因由属".indexOf(n)!==-1||"均实诚皆全".indexOf(p)!==-1)return"係";if(p==="此")return("统列".indexOf(n)!==-1)?"系":"係";if("鞋袜辫栓悬挂绑鼓襟".indexOf(n)!==-1||"绑扣带悬".indexOf(p)!==-1||(p==="端"&&"一两".indexOf(pp)!==-1))return"繫";return"系";},
-    // 38. 胡	胡 鬍 衚
-    0x80E1: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";if(n==="茬渣型"||"拈满捋捻腮撇巴".indexOf(p)!==-1)return"鬍";return "胡";},
-    // 39. 脏	髒 臟
-    0x810F: function(i,t){var pp=t.charAt(i-2)||" ",p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";if((p==="("||p==="（")&&"心肝脾肺肾胰肠胃".indexOf(pp)!==-1&&(n===")"||n==="）"))return"臟";return("六腹".indexOf(p)!==-1||"壁层膜腔窦".indexOf(n)!==-1)?"臟":"髒";},
-    // 40. 舍	舍 捨
-    0x820D: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return("近求死爱欲状己臂世父却我".indexOf(n)!==-1||"忍惜可".indexOf(p)!==-1)?"捨":"舍";},
-    // 41. 范	範 范
-    0x8303: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",n2=t.charAt(i+2)||" ";if(p==="姓"||sn2.indexOf("|"+n+n2+"|")!==-1||"府氏遥闲缜滂陈".indexOf(n)!==-1)return"范";return"範";},
-    // 42. 获	獲 穫
-    0x83B7: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return("秋刈秎田舍耕".indexOf(p)!==-1||"稻谷麦刈禾".indexOf(n)!==-1)?"穫":"獲";},
-    // 43. 谷	谷 穀
-    0x8C37: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return("粒粉皮米糠苗草实浆蛾蠹蟊螟稼麦粟砻".indexOf(n)!==-1||"脱壳晒打积筛磨簸碾垄砻踹粮获穗糠".indexOf(p)!==-1)?"穀":"谷";},
-    // 44. 采	採 采 寀
-    0x91C7: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return(n==="誉"||"声凤髹矞".indexOf(p)!==-1)?"采":"採";},
-    // 45. 里	裏 里
-    0x91CC: function(i,t){var pp=t.charAt(i-2)||" ",p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",nn=t.charAt(i+2)||" ";if(p==="海"){if(m.indexOf(pp)!==-1||(n==="的"&&"距长范航".indexOf(nn)!==-1)||"为计作".indexOf(n)!==-1)return"里";return"裡";}return(m.indexOf(p)!==-1)?"里":"裡";},
-    // 46. 钟	鍾 鐘 鈡
-    0x949F: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return("历乐罩钓雾禅浮管墙洋桌车套巨笨零殿水沙夜银厨骨象铷氢氨光考恒祈救报自免生宇遥潮量弥赛离灵械扣排副棋拨楼坛董勤铿顺修饭加多残听疏诞婚买字地钱够此静校音瑚期池号条".indexOf(p)!==-1||"房室铃控槌架绳铭锤型杆壳舌耳花雀鹊鹟鸟虫乳状梵学定坐柎拨滴当角".indexOf(n)!==-1)?"鐘":"鍾";},
-    // 47. 面	面 麪
-     0x9762: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return p==="冷"?("相冷幽笑滑演表临地法寒说".indexOf(n)===-1?"麵":"面"):p==="白"?("书无鼯僧霜孔男".indexOf(n)===-1?"麵":"面"):n==="包"?("全内".indexOf(p)===-1?"麵":"面"):("饸醒酱羹抟蘸麦仔".indexOf(p)!==-1||"锅铺馍酵圪龟粻抟".indexOf(n)!==-1)?"麵":"面";},
-    // 48. 须	須 鬚
-    0x987B: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return("捋撚髯鬓颌鬈黪翦剔".indexOf(p)!==-1||"鳚鳕梢𬶏䴕鬓鳂癣髭鬣鲃".indexOf(n)!==-1)?"鬚":"須";},
-    // 49. 愈	愈 癒
-    0x6108: function(i,t){var n=t.charAt(i+1)||" ",n2=t.charAt(i+2)||" ";return(n==="合"&&"适理法情算身心用意于乎他式我拍拢她".indexOf(n2)===-1)?"癒":"愈";},
-    // 50. 扎	扎 紮
-    0x624E: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return("缠绞缚系绷".indexOf(p)!==-1||"辫裤发绳制捆束".indexOf(n)!==-1)?"紮":"扎";},
-    // 51. 卷	卷 捲
-    0x5377: function(i,t){var pp=t.charAt(i-2)||" ",p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";if(p==="发"&&"子宗".indexOf(n)===-1)return"捲";if(n==="轴"&&"垂直|纵向|横向|水平|电脑|萤幕|设定".indexOf(pp+p)!==-1)return"捲";if(n==="上"){if("》．(".indexOf(p)!==-1&&"例传则咏品商契子存实志抄断求注源牍物璞异疏章簿经编纂义羹考腴要规解觿记注话语谈论谱议钞录集事史草补丛".indexOf(pp)!==-1)return"卷";return"捲";}return"卷";},
-    // 52. 困	困 睏
-    //0x56F0: 改用視界邏輯處理。
-    // 53. 背	背 揹
-    // 0x80CC: 僅處理交叉歧義與雙關陷阱。
-    // 54. 托	託 托
-    0x6258: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return ("承木蠖果支叶斜骚干鎗".indexOf(p)!==-1||("在着著钵碗婴上的尼巴贝".indexOf(n)!==-1&&"拜寄委依请推假".indexOf(p)===-1))?"托":"託";},
-    // 55. 广	廣 广
-    0x5E7F: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return (p==="崖"&&"大阔".indexOf(n)===-1)?"广":"廣";},
-    // 56. 价	價 价
-    0x4EF7: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return (n==="古" && "估售".indexOf(p)===-1) ? "价" : "價";},
-    // 57. 筑	築 筑
-    0x7B51: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return ("前北后西".indexOf(n)!==-1&&"修建".indexOf(p)===-1)?"筑":"築";},
-};
-
-    // === 新增繁轉簡語法邏輯 ContextLogic_T2S 引擎 ===
-const ContextLogic_T2S = {
-    // 1. 乾	干 乾
-    0x4E7E: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",n2=t.charAt(i+2)||" ";return(("震兌離陽清☰".indexOf(n)!==-1&&(n!=="清"||n2!=="酒")||"為（(".indexOf(n)!==-1&&"天日☰金".indexOf(n2)!==-1||(p==="《"&&n==="》")||p==="☰"||n==="☰"||"朝旋扭顛".indexOf(p)!==-1)&&"喝吃曬烘烤瀝擦弄吹洗".indexOf(p)===-1)?"乾":"干";},
-    // 2. 覆	覆 复
-    0x8986: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return(n==="函" || "批往敬賜".indexOf(p)!==-1)?"复":"覆";},
-    // 3. 藉	藉 借
-    0x85C9: function(i,t){var n=t.charAt(i+1)||" ";return("勢題".indexOf(n)!==-1)?"借":"藉";},
-    // 4. 鍊	炼 链 𫔀
-    0x934A: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return("鋸輪軌帶球齒".indexOf(n)!==-1||"狗貓腳錶表皮珠銅鋼瑙晶車鋁塑膠".indexOf(p)!==-1)?"链":"炼";},
-    // 5. 著	著 着
-    0x8457: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",n2=t.charAt(i+2)||" ",pp=t.charAt(i-2)||" ";return(p==="合"?("配湊正眼嘴".indexOf(pp)===-1&&"眼嘴你我他是就".indexOf(n)===-1&&("者書文作本論錄的之《〈 ,.。、；：？！)]}\n\r ".indexOf(n)!==-1||((m+"這那哪整半").indexOf(n)!==-1&&"本部冊卷篇".indexOf(n2)!==-1))):("編校".indexOf(p)!==-1?("者作名稱書述錄史說志式於白稿典篇卷的之 ,.。、；：？！)]}\n\r ".indexOf(n)!==-1||((m+"這那哪整半").indexOf(n)!==-1&&"本部冊卷篇".indexOf(n2)!==-1)):("丟享付伴住來修做停傷入分切刮到刷割加印去取叫吃吸吻哭唱唸問喊喝嗅嘗回坐執報塗墊夠完寫帶幫建忘念怨恨想愛感憾成戴打扔托扶批找抄抓抖折抬抱抹拂拄拆拉拍拎拔拖拭拾拿持指按挖捏捧捲掃掛接推掩描提插換揮揹搓搬摔摘摸摺撈撕撞撬撿擁擊擠擦擱擺攔攬收放教敲數是有梳標死殺泡洗活流照熨爬獵玩用留畫發盯省看睡祝空穿窺站笑等終給練罰罵翻聞聽背脫舔舞蓋裁補要見覺訂記許說談請講謝讀讓買賄賣贊走趴跑跑跪跳踢躺辦送逃進過遵選鋪鋸錄鎖開關隨飛騎黏夢".indexOf(p)===-1&&("者作名稱書述錄史說志式於白稿典篇卷".indexOf(n)!==-1||"名巨鉅昭顯原譯撰專論卓新遺傑孤絕所代土".indexOf(p)!==-1))))?"著":"着";},
-    // 6. 鍾	钟 锺
-    0x937E: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",n2=t.charAt(i+2)||" ";return(p==="姓"||sn2.indexOf("|"+n+n2+"|")!==-1)?"锺":"钟";}
-};
-
     const doConvert = (srcText) => {
         let textLen = srcText.length;
         let masterOut = [];
@@ -5508,9 +5356,19 @@ const ContextLogic_T2S = {
         let replaceCount = 0;
 
         const activeLogic = effectiveContextLogic ? ContextLogic : (effectiveContextLogic_T2S ? ContextLogic_T2S : null);
+        const fastSkipLimit = (CURRENT_MODE === "S2TWP" || CURRENT_MODE === "TW2SP") ? 0x21 : 0x80;
 
         while (i < textLen) {
             let firstCode = srcText.charCodeAt(i);
+
+            // 快速過濾無效字元 (空白、換行，或普通模式下的英數)
+            if (firstCode < fastSkipLimit) { 
+                while (i < textLen && srcText.charCodeAt(i) < fastSkipLimit) {
+                    i++;
+                }
+                continue; 
+            }
+
             let node = rootNodes[firstCode];
 
             if (node === undefined) {
@@ -5548,7 +5406,7 @@ const ContextLogic_T2S = {
         var anchorLen = longestMatchLen;
         var foundAnchor = null;
 
-        // 1. [前綴掃描] 使用 .has() 檢查 Set
+        // 1. [前綴掃描] 檢查 Set
         while (anchorLen > 1) {
             var currentPrefix = srcText.substring(i, i + anchorLen);
             if (VisionAnchors.has(currentPrefix)) {
@@ -5559,6 +5417,7 @@ const ContextLogic_T2S = {
         }
 
     if (foundAnchor) {
+        isVisionTriggered = true;
         if (longestMatchLen >=4 && longestMatchLen > anchorLen) {
             foundAnchor = null;
         }
@@ -5649,7 +5508,7 @@ const ContextLogic_T2S = {
                 
                 out.push(finalTarget);
 
-                // 當子陣列達到 10,000 個片段時先行合併，防止陣列過大導致 V8 記憶體置換緩慢
+                // V8 記憶體優化：分段合併
                 if (out.length > 10000) {
                     masterOut.push(out.join(""));
                     out = [];
@@ -5675,6 +5534,7 @@ const ContextLogic_T2S = {
 
     // 5. 開始轉換
     let totalReplaced = 0;
+    let isVisionTriggered = false;
     let bOrgCombine = false; 
 
     try { Redraw = false; } catch(e) {}
