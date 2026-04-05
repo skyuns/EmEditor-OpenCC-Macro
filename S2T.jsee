@@ -25,7 +25,7 @@ const Simulator_MODE = false; // 模擬轉換模式 (true: 始終開啟; false: 
 const ContextLogic_MODE = true; // 語法邏輯 ContextLogic 引擎總開關 (true: 啟動; false: 關閉)
 const VisionLogic_MODE = true; // 視界邏輯 VisionLogic 引擎總開關 (true: 啟動; false: 關閉)
 
-// --- [區塊 A：簡轉繁詞組資料 (STPhrases.txt) 更新至 2026-03-29] ---
+// --- [區塊 A：簡轉繁詞組資料 (STPhrases.txt) 更新至 2026-04-04] ---
 const rawPhraseData = `
 # Open Chinese Convert (OpenCC) Dictionary
 # File: STPhrases.txt
@@ -5784,6 +5784,7 @@ const rawPhraseData = `
 公众参与	公衆參與
 公余	公餘
 公使团	公使團
+公元纪年	公元紀年
 公克	公克
 公公向孙子磕头	公公向孫子磕頭
 公共休闲环境	公共休閒環境

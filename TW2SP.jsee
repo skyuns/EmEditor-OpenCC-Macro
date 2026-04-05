@@ -21,7 +21,7 @@ const Simulator_MODE = false; // 模擬轉換模式 (true: 始終開啟; false: 
 const ContextLogic_MODE = false; // 語法邏輯 ContextLogic 引擎總開關 (true: 啟動; false: 關閉)
 const VisionLogic_MODE = false; // 視界邏輯 VisionLogic 引擎總開關 (true: 啟動; false: 關閉)
 
-// --- [區塊 A：台灣用語 -> 大陸用語 (TWPhrasesRev.txt) 更新至 2026-03-16] ---
+// --- [區塊 A：台灣用語 -> 大陸用語 (TWPhrasesRev.txt) 更新至 2026-04-04] ---
 const rawPhraseData = `
 # Open Chinese Convert (OpenCC) Dictionary
 # File: TWPhrasesRev.txt
@@ -83,6 +83,7 @@ SQL隱碼攻擊	SQL注入 SQL注入攻擊
 全域性	全局
 全形	全角
 全球資訊網	萬維網
+公元紀年	公元紀年
 冰棒	冰棍
 冷盤	涼菜
 函式	函數
@@ -147,6 +148,7 @@ SQL隱碼攻擊	SQL注入 SQL注入攻擊
 型別	類型
 埠	端口
 執行	運行
+執行檔	可執行文件
 執行緒	線程
 執行長	首席執行官
 堆疊	堆棧
@@ -211,6 +213,7 @@ SQL隱碼攻擊	SQL注入 SQL注入攻擊
 序列埠	串口 串行端口
 序號產生器	註冊機
 建構函式	構造函數
+建構子	構造器
 建立	創建
 引數	參數
 彙編	彙編
@@ -369,6 +372,7 @@ SQL隱碼攻擊	SQL注入 SQL注入攻擊
 終端使用者	最終用戶
 組合語言	彙編語言
 組譯	彙編
+組譯器	彙編器
 結束通話	掛斷
 維德角	佛得角
 網咖	網吧
@@ -414,10 +418,12 @@ SQL隱碼攻擊	SQL注入 SQL注入攻擊
 行動資料	移動資料
 行動通訊	移動通信
 行動電話	移動電話
+行程	進程
 衣索比亞	埃塞俄比亞
 表示式	表達式
 裝置	設備
 複製	拷貝
+西元	公元
 視窗	窗口
 視覺化	可視化
 視訊	視頻
@@ -426,6 +432,7 @@ SQL隱碼攻擊	SQL注入 SQL注入攻擊
 視訊通話	視頻通話
 解析度	分辨率
 解構函式	析構函數
+解構子	析構函數
 解除安裝	卸載
 觸控	觸摸
 觸控式螢幕	觸摸屏
