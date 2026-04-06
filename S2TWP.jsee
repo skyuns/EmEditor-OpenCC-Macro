@@ -4,7 +4,7 @@
 #icon="S2TWP.ico"
 
 /**
- * Project: OpenCC for EmEditor Macro v0.31
+ * Project: OpenCC for EmEditor Macro v0.31a
  * Author: skyuns (https://github.com/skyuns/EmEditor-OpenCC-Macro)
  * This macro provides foundational conversion based on the OpenCC core lexicon. Note that results may vary from the official implementation.
  * (本巨集基於 OpenCC 核心詞庫提供基礎繁簡轉換。請注意，轉換結果可能與官方執行版本有所出入。)
@@ -21,7 +21,7 @@ const Simulator_MODE = false; // 模擬轉換模式 (true: 始終開啟; false: 
 const ContextLogic_MODE = false; // 語法邏輯 ContextLogic 引擎總開關 (true: 啟動; false: 關閉)
 const VisionLogic_MODE = false; // 視界邏輯 VisionLogic 引擎總開關 (true: 啟動; false: 關閉)
 
-// --- [區塊 A：大陸用語 -> 台灣用語 (TWPhrases.txt) 更新至 2026-04-04] ---
+// --- [區塊 A：大陸用語 -> 台灣用語 (TWPhrases.txt) 更新至 2026-04-05] ---
 const rawPhraseData = `
 # Open Chinese Convert (OpenCC) Dictionary
 # File: TWPhrases.txt
@@ -185,6 +185,16 @@ U盤	隨身碟
 安提瓜和巴布達	安地卡及巴布達
 宏	宏 巨集
 宏內核	單核心
+宏函數	巨集函式
+宏命令	巨集命令
+宏定義	巨集定義
+宏展開	巨集展開
+宏指令	巨集指令
+宏替換	巨集替換
+宏編程	巨集程式設計
+宏處理	巨集處理
+宏語言	巨集語言
+宏調用	巨集呼叫
 寄存器	暫存器
 密鑰	金鑰
 實例	例項 實例
@@ -1365,7 +1375,6 @@ function main() {
     }
 
     const rootNodes = new Array(65536);
-
     for (let [key, target] of finalDict) {
         if (!key) continue;
         let firstCode = key.charCodeAt(0);
@@ -1388,6 +1397,17 @@ function main() {
         node.o = key;
     }
 
+    // 將語法邏輯從 Hash 物件轉為固定長度陣列，達成 O(1) 極速讀取
+    const activeLogicArr = new Array(65536);
+    let hasLogic = false;
+    const currentLogicObj = effectiveContextLogic ? ContextLogic : (effectiveContextLogic_T2S ? ContextLogic_T2S : null);
+    if (currentLogicObj !== null) {
+        hasLogic = true;
+        for (let k in currentLogicObj) {
+            activeLogicArr[k] = currentLogicObj[k];
+        }
+    }
+
     const doConvert = (srcText) => {
         let textLen = srcText.length;
         let masterOut = [];
@@ -1395,23 +1415,17 @@ function main() {
         let i = 0;
         let lastMatchEnd = 0;
         let replaceCount = 0;
-
-        const activeLogic = effectiveContextLogic ? ContextLogic : (effectiveContextLogic_T2S ? ContextLogic_T2S : null);
         const fastSkipLimit = (CURRENT_MODE === "S2TWP" || CURRENT_MODE === "TW2SP") ? 0x21 : 0x80;
-
+        
         while (i < textLen) {
             let firstCode = srcText.charCodeAt(i);
-
-            // 快速過濾無效字元 (空白、換行，或普通模式下的英數)
+            
             if (firstCode < fastSkipLimit) { 
-                while (i < textLen && srcText.charCodeAt(i) < fastSkipLimit) {
-                    i++;
-                }
-                continue; 
+                while (i < textLen && srcText.charCodeAt(i) < fastSkipLimit) i++;
+                continue;
             }
 
             let node = rootNodes[firstCode];
-
             if (node === undefined) {
                 i++;
                 continue;
@@ -1442,123 +1456,111 @@ function main() {
                 j++;
             }
 
-    if (effectiveVisionLogic && longestMatchLen > 1) {
-        
-        var anchorLen = longestMatchLen;
-        var foundAnchor = null;
-
-        // 1. [前綴掃描] 檢查 Set
-        while (anchorLen > 1) {
-            var currentPrefix = srcText.substring(i, i + anchorLen);
-            if (VisionAnchors.has(currentPrefix)) {
-                foundAnchor = currentPrefix;
-                break; 
-            }
-            anchorLen--;
-        }
-
-    if (foundAnchor) {
-        isVisionTriggered = true;
-        if (longestMatchLen >=4 && longestMatchLen > anchorLen) {
-            foundAnchor = null;
-        }
-    }
-        if (foundAnchor) {
-            var visionIdx = i + anchorLen - 1; 
-            var visionNode = rootNodes[srcText.charCodeAt(visionIdx)];
-            var visionWord = "";
-            
-            // --- 2. 第一層：找視界詞典 (同時檢查主詞典與 Set) ---
-            var k = visionIdx + 1;
-            while (k < textLen) {
-                visionNode = visionNode ? visionNode.c.get(srcText.charCodeAt(k)) : null;
-                var currentSub = srcText.substring(visionIdx, k + 1);
-                if ((visionNode && visionNode.v !== null) || VisionVocabs.has(currentSub)) {
-                    visionWord = currentSub;
-                }
-                if (!visionNode && currentSub.length > 6) break;
-                k++;
-            }
-
-            // --- 3. 第二層：全面穩定性檢查 ---
-            if (visionWord !== "") {
-                var isVisionStable = true; 
-                var deepIdx = visionIdx + visionWord.length - 1;
-                var deepNode = rootNodes[srcText.charCodeAt(deepIdx)];
-                var k2 = deepIdx + 1;
-                while (k2 < textLen) {
-                    deepNode = deepNode ? deepNode.c.get(srcText.charCodeAt(k2)) : null;
-                    var deepSub = srcText.substring(deepIdx, k2 + 1);
-                    if ((deepNode && deepNode.v !== null) || VisionVocabs.has(deepSub)) {
-                        isVisionStable = false; 
-                        break;
+            if (effectiveVisionLogic && longestMatchLen > 1) {
+                var anchorLen = longestMatchLen;
+                var foundAnchor = null;
+                while (anchorLen > 1) {
+                    var currentPrefix = srcText.substring(i, i + anchorLen);
+                    if (VisionAnchors.has(currentPrefix)) {
+                        foundAnchor = currentPrefix;
+                        break; 
                     }
-                    if (!deepNode && deepSub.length > 6) break;
-                    k2++;
+                    anchorLen--;
                 }
 
-                // --- 4. 最終裁決 (備案截斷邏輯) ---
-                if (isVisionStable) {
-                    var backupLen = anchorLen - 1;
-                    var foundBackup = false;
-                    while (backupLen >= 2) {
-                        if (VisionAnchors.has(srcText.substring(i, i + backupLen))) {
-                            longestMatchLen = backupLen; 
-                            foundBackup = true;
-                            break;
-                        }
-                        backupLen--;
-                    }
-                    if (!foundBackup) longestMatchLen = 1; 
-
-                    // 5. 重新抓取轉換目標字
-                    var finalNode = rootNodes[srcText.charCodeAt(i)];
-                    for (var m = 1; m < longestMatchLen; m++) {
-                        if (!finalNode) break;
-                        finalNode = finalNode.c.get(srcText.charCodeAt(i + m));
-                    }
-                    if (finalNode && finalNode.v !== null) {
-                        longestMatchTarget = finalNode.v;
-                    } else {
-                        longestMatchLen = 1;
-                        longestMatchTarget = srcText.charAt(i);
-                    }
-                    longestMatchOriginal = srcText.substring(i, i + longestMatchLen);
-                }
-            }
-        }
-    }
-
-            if (longestMatchLen > 0) {
-                if (i > lastMatchEnd) {
-                    out.push(srcText.substring(lastMatchEnd, i));
+                if (foundAnchor) {
+                    isVisionTriggered = true;
+                    if (longestMatchLen >= 4 && longestMatchLen > anchorLen) foundAnchor = null;
                 }
                 
-                let finalTarget = longestMatchTarget;
-
-                if (longestMatchLen === 1 && activeLogic !== null) {
-                    let hook = activeLogic[firstCode];
-                    if (hook) {
-                        finalTarget = hook(i, srcText);
+                if (foundAnchor) {
+                    var visionIdx = i + anchorLen - 1;
+                    var visionNode = rootNodes[srcText.charCodeAt(visionIdx)];
+                    var visionWord = "";
+                    
+                    var k = visionIdx + 1;
+                    while (k < textLen) {
+                        visionNode = visionNode ? visionNode.c.get(srcText.charCodeAt(k)) : null;
+                        var currentSub = srcText.substring(visionIdx, k + 1);
+                        if ((visionNode && visionNode.v !== null) || VisionVocabs.has(currentSub)) {
+                            visionWord = currentSub;
+                        }
+                        if (!visionNode && currentSub.length > 6) break;
+                        k++;
                     }
+
+                    if (visionWord !== "") {
+                        var isVisionStable = true;
+                        var deepIdx = visionIdx + visionWord.length - 1;
+                        var deepNode = rootNodes[srcText.charCodeAt(deepIdx)];
+                        var k2 = deepIdx + 1;
+                        
+                        while (k2 < textLen) {
+                            deepNode = deepNode ? deepNode.c.get(srcText.charCodeAt(k2)) : null;
+                            var deepSub = srcText.substring(deepIdx, k2 + 1);
+                            if ((deepNode && deepNode.v !== null) || VisionVocabs.has(deepSub)) {
+                                isVisionStable = false;
+                                break;
+                            }
+                            if (!deepNode && deepSub.length > 6) break;
+                            k2++;
+                        }
+
+                        if (isVisionStable) {
+                            var backupLen = anchorLen - 1;
+                            var foundBackup = false;
+                            while (backupLen >= 2) {
+                                if (VisionAnchors.has(srcText.substring(i, i + backupLen))) {
+                                    longestMatchLen = backupLen;
+                                    foundBackup = true;
+                                    break;
+                                }
+                                backupLen--;
+                            }
+                            if (!foundBackup) longestMatchLen = 1;
+                            
+                            var finalNode = rootNodes[srcText.charCodeAt(i)];
+                            for (var m = 1; m < longestMatchLen; m++) {
+                                if (!finalNode) break;
+                                finalNode = finalNode.c.get(srcText.charCodeAt(i + m));
+                            }
+                            if (finalNode && finalNode.v !== null) {
+                                longestMatchTarget = finalNode.v;
+                            } else {
+                                longestMatchLen = 1;
+                                longestMatchTarget = srcText.charAt(i);
+                            }
+                            longestMatchOriginal = srcText.substring(i, i + longestMatchLen);
+                        }
+                    }
+                }
+            }
+
+            if (longestMatchLen > 0) {
+                let finalTarget = longestMatchTarget;
+                
+                if (longestMatchLen === 1 && hasLogic) {
+                    let hook = activeLogicArr[firstCode];
+                    if (hook !== undefined) finalTarget = hook(i, srcText);
                 }
 
                 if (longestMatchOriginal !== finalTarget) {
+                    if (i > lastMatchEnd) {
+                        out.push(srcText.substring(lastMatchEnd, i));
+                    }
+                    
+                    out.push(finalTarget);
                     replaceCount++;
+                    lastMatchEnd = i + longestMatchLen;
+                    
+                    if (out.length > 10000) {
+                        masterOut.push(out.join(""));
+                        out = [];
+                    }
                 }
-                
-                out.push(finalTarget);
-
-                // V8 記憶體優化：分段合併
-                if (out.length > 10000) {
-                    masterOut.push(out.join(""));
-                    out = [];
-                }
-
                 i += longestMatchLen;
-                lastMatchEnd = i;
             } else { 
-                i++; 
+                i++;
             }
         }
 
