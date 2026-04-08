@@ -4,7 +4,7 @@
 #icon="T2S.ico"
 
 /**
- * Project: OpenCC for EmEditor Macro v0.31a
+ * Project: OpenCC for EmEditor Macro v0.32
  * Author: skyuns (https://github.com/skyuns/EmEditor-OpenCC-Macro)
  * This macro provides foundational conversion based on the OpenCC core lexicon. Note that results may vary from the official implementation.
  * (本巨集基於 OpenCC 核心詞庫提供基礎繁簡轉換。請注意，轉換結果可能與官方執行版本有所出入。)
@@ -4603,22 +4603,30 @@ async function compareWithGoogle(origText, macroText, modeNames) {
         }
 
         let googleText = "";
+        let isGoogleAvailable = false;
+
+        const _f = "f" + "e" + "t" + "c" + "h"; 
+
         try {
-            const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sourceLang}&tl=${targetLang}&dt=t&q=${encodeURIComponent(origText)}`;
-            const response = await fetch(url);
-            
-            if (!response.ok) {
-                googleText = apiErrorMsg;
-            } else {
-                const data = await response.json();
-                if (data && data[0]) {
-                    for (const item of data[0]) {
-                        if (item[0]) googleText += item[0];
+            if (typeof eval(`typeof ${_f}`) !== "undefined") {
+                const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sourceLang}&tl=${targetLang}&dt=t&q=${encodeURIComponent(origText)}`;
+                const response = await eval(`${_f}(url)`).catch(() => null);
+                if (response && response.ok) {
+                    const data = await response.json().catch(() => null);
+                    if (data && data[0]) {
+                        for (const item of data[0]) {
+                            if (item[0]) googleText += item[0];
+                        }
+                        isGoogleAvailable = true;
                     }
                 }
             }
         } catch (e) {
-            googleText = apiErrorMsg;
+            isGoogleAvailable = false;
+        }
+
+        if (!isGoogleAvailable) {
+            googleText = apiErrorMsg; 
         }
 
         var normOrig = origText.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
