@@ -1,0 +1,277 @@
+﻿#language="JScript"
+
+// Project: OpenCC for EmEditor Macro v0.34 BoostCVT
+// Author: skyuns (https://github.com/skyuns/EmEditor-OpenCC-Macro)
+// Purpose: 中介加速腳本，負責執行智慧切塊並呼叫 BoostCVT 增壓引擎以進行大規模文字的多執行緒高速繁簡轉換。支援 S2T/T2S 雙向模式。
+// Note: BoostCVT 僅在大規模文字且組件存在時啟動。加速組件（EXE/DLL）為選配項目，使用者可視需求自由部署；使用時須經由 .jsee 腳本驅動，不支援獨立運作。
+
+var wsh = new ActiveXObject("WScript.Shell");
+var fso = new ActiveXObject("Scripting.FileSystemObject");
+var scriptDir = fso.GetParentFolderName(ScriptFullName);
+var exePath = fso.BuildPath(scriptDir, "BoostCVT.exe");
+var dllPath = fso.BuildPath(scriptDir, "BoostCVT.dll");
+var oldMacroPath = fso.BuildPath(scriptDir, "T2S.jsee"); // 預設路徑
+
+var msgModeNameTC = "繁轉簡";
+var msgModeNameSC = "繁转简";
+var msgModeNameEN = "T2S";
+
+// 讀取剪貼簿中的參數 (格式: BoostCVT_CONFIG_TOKEN|模式|主巨集路徑|模擬|語法|視界)
+// --- [解析詳細開關參數並傳遞給 EXE/DLL] ---
+var mode = "T2S";
+var isCtx = "1";
+var isVis = "1";
+// 偵測當下的鍵盤狀態
+var isShift = (shell.GetKeyState(0x10) < 0) ? "1" : "0";
+var isAlt   = (shell.GetKeyState(0x12) < 0) ? "1" : "0";
+
+var configData = clipboardData.getData("Text");
+if (configData && configData.indexOf("BoostCVT_CONFIG_TOKEN|") === 0) {
+    var parts = configData.split("|");
+    if (parts.length >= 6) {
+        mode = parts[1];
+        oldMacroPath = parts[2];
+        isCtx = (parts[4] === "true") ? "1" : "0";
+        isVis = (parts[5] === "true") ? "1" : "0";
+        
+        var isS2T = (mode.indexOf("S2T") !== -1);
+        msgModeNameTC = isS2T ? "簡轉繁" : "繁轉簡";
+        msgModeNameSC = isS2T ? "简转繁" : "繁转简";
+        msgModeNameEN = mode;
+    }
+}
+
+// 重新封裝成 5 段式旗標 (格式範例: "S2T|1|1|0|0")
+var configFlags = mode + "|" + isCtx + "|" + isVis + "|" + isShift + "|" + isAlt;
+
+function _L(en, tc, sc) {
+    var lang = editor.LangID;
+    if (lang == 1028) return tc;
+    if (lang == 2052) return sc;
+    return en;
+}
+
+function getMsgProcessing(p, threads) {
+    var steps = "▁▃▅▇";
+    var fullStr  = "▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇";
+    var trackStr = "▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁";
+    var bar = "";
+    if (p >= 99) bar = fullStr.substring(0, 19) + "▅"; 
+    else {
+        var filledCount = Math.floor(p / 5);
+        var remainder = p % 5;
+        var stepIdx = Math.floor((remainder / 5) * 4);
+        bar = fullStr.substring(0, filledCount) + steps.charAt(stepIdx) + trackStr.substring(0, 19 - filledCount);
+    }
+    var pStr = (p < 10) ? "0" + p : p;
+    var msg = (p >= 99) ? 
+        _L("⏳ Integrating data, please wait...", "⏳ " + msgModeNameTC + " 資料整合中，請稍候...", "⏳ " + msgModeNameSC + " 数据整合中，请稍候...") :
+        _L("⏳ Processing data, please wait...", "⏳ " + msgModeNameTC + " 資料處理中，請稍候...", "⏳ " + msgModeNameSC + " 数据处理中，请稍候...");
+
+    // 🌟 多語系訊息
+    var boostInfo = _L(
+        "(" + threads + " threads, BoostCVT Engine)",
+        "(" + threads + " 執行緒，BoostCVT 增壓引擎)",
+        "(" + threads + " 线程，BoostCVT 增压引擎)"
+    );
+
+    return msg + "\n" + bar + " " + pStr + "%\n" + boostInfo;
+}
+
+function main() {
+    var sel = document.selection;
+    if (sel.IsEmpty) {
+        alert(_L("No text selected.", "未選取文字", "未选中文本"));
+        return;
+    }
+
+    // 1. 備份剪貼簿
+    var backupClip = clipboardData.getData("Text");
+
+    var startTime = Date.now();
+    var topY = sel.GetTopPointY(eePosLogical);
+    var bottomY = sel.GetBottomPointY(eePosLogical);
+    var topX = sel.GetTopPointX(eePosLogical);
+    var bottomX = sel.GetBottomPointX(eePosLogical);
+    var txtlen = sel.Textlength;
+    var selectedLines = bottomY - topY + 1;
+
+    // 2. 切塊邏輯
+    var chunks = [];
+    var numChunks = 1;
+    if (txtlen > 0) {
+        numChunks = Math.ceil(txtlen / 80000000); 
+    } else {
+        if (selectedLines > 5000000) numChunks = 50;
+        else if (selectedLines > 10000) numChunks = 20;
+        else if (selectedLines > 2000) numChunks = 5;
+    }
+    var linesPerChunk = Math.ceil(selectedLines / numChunks);
+    if (linesPerChunk < 1) linesPerChunk = 1;
+
+    var currY = topY;
+    while (currY <= bottomY) {
+        var eY = Math.min(currY + linesPerChunk - 1, bottomY);
+        chunks.push({
+            topY: currY, bottomY: eY,
+            isFirst: (currY === topY), isLast: (eY === bottomY)
+        });
+        currY = eY + 1;
+    }
+    chunks.reverse(); // 由下往上處理，避免座標偏移
+
+    // 🌟 動態偵測執行緒 (依據 CPU 設定執行緒)
+    var envCores = shell.GetEnv("NUMBER_OF_PROCESSORS");
+    var totalLogical = envCores ? parseInt(envCores, 10) : 4;
+
+    // 🌟 執行緒權重策略：邏輯總數 * 0.75
+    var threadCount = Math.floor(totalLogical * 0.75);
+
+    if (isNaN(threadCount) || threadCount < 2) threadCount = 2;
+    if (threadCount > 12) threadCount = 12;
+
+    var totalReplaced = 0;
+    try { Redraw = false; } catch(e) {}
+    try { var originalCombine = CombineHistory;
+    CombineHistory = true; 
+    } catch(e) {}
+    var topX = document.selection.GetTopPointX(eePosLogical);
+    var topY = document.selection.GetTopPointY(eePosLogical);
+    var realBottomX = document.selection.GetBottomPointX(eePosLogical);
+    var realBottomY = document.selection.GetBottomPointY(eePosLogical);
+
+    try {
+        var totalChunks = chunks.length;
+        
+        // 3. 逐塊呼叫 EXE/DLL (穩定架構)
+        for (var c = 0; c < totalChunks; c++) {
+            var progress = Math.round(((c + 1) / totalChunks) * 99); 
+            ShowTip(getMsgProcessing(progress, threadCount), 1);
+
+            var chunk = chunks[c];
+            if (chunk.isFirst) sel.SetActivePoint(eePosLogical, topX, chunk.topY);
+            else sel.SetActivePoint(eePosLogical, 1, chunk.topY);
+            
+            if (chunk.isLast) sel.SetActivePoint(eePosLogical, bottomX, chunk.bottomY, true);
+            else sel.SetActivePoint(eePosLogical, 1, chunk.bottomY + 1, true);
+
+            var chunkText = sel.Text;
+            if (!chunkText) continue;
+
+            // 🌟 執行緒分段處理邏輯
+            var subSize = Math.floor(chunkText.length / threadCount);
+            var cuts = [0]; 
+            for (var k = 1; k < threadCount; k++) {
+                var expectedPos = subSize * k;
+                var safeCut = chunkText.indexOf('\n', expectedPos);
+                if (safeCut === -1) safeCut = expectedPos;
+                cuts.push(safeCut);
+            }
+            cuts.push(chunkText.length);
+
+            var segments = [];
+            for (var k = 0; k < threadCount; k++) {
+                segments.push(chunkText.substring(cuts[k], cuts[k + 1]));
+            }
+            var bundledText = segments.join("|||CHUNK_SEP|||");
+
+            // 送入剪貼簿
+            clipboardData.setData("Text", bundledText);
+            
+            // --- [ 增壓引擎呼叫邏輯：EXE 優先，DLL 為輔 ] ---
+            if (fso.FileExists(exePath)) {
+                // 🚀 EXE 模式 (最快，免加載開銷)
+                var cmd = '"' + exePath + '" "' + oldMacroPath + '" "' + configFlags + '"';
+                wsh.Run(cmd, 0, true);
+            } 
+            else if (fso.FileExists(dllPath)) {
+                // 🛠️ DLL 模式 (次之，透過 PowerShell 加載)
+                var psCommand = "powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"" +
+                    "[Reflection.Assembly]::LoadFile('" + dllPath.replace(/\\/g, "/") + "') | Out-Null; " +
+                    "[MyTools.TextProcessor]::Convert('" + oldMacroPath.replace(/\\/g, "/") + "', '" + configFlags + "');\"";
+                wsh.Run(psCommand, 0, true);
+            }
+
+            // 從剪貼簿取回結果並解析計數
+            var rawData = clipboardData.getData("Text");
+            if (rawData !== null) {
+                // 釋放記憶體
+                clipboardData.clearData("Text", 0);
+                // 🌟 解析回傳格式 "分段1|||CHUNK_SEP|||分段2...|||COUNT_SEP|||總取代數"
+                var mainParts = rawData.split("|||COUNT_SEP|||");
+                var textSegments = mainParts[0].split("|||CHUNK_SEP|||");
+                
+                // 將多執行緒處理完的所有分段合併寫回編輯器
+                sel.Text = textSegments.join("");
+                
+                // 即時捕捉與校正結束座標
+                if (chunk.isLast) {
+                    realBottomX = sel.GetActivePointX(eePosLogical);
+                    realBottomY = sel.GetActivePointY(eePosLogical);
+                } else {
+                    var newLines = mainParts[0].split("\n").length;
+                    var oldLines = chunkText.split("\n").length;
+                    realBottomY += (newLines - oldLines);
+                }
+                
+                // 強固型計數器
+                if (mainParts.length > 1) {
+                    var count = parseInt(mainParts[1], 10);
+                    if (!isNaN(count)) {
+                        totalReplaced += count;
+                    }
+                }
+            }
+            // 記憶體釋放機制
+            chunkText = null;
+            segments = null;
+            bundledText = null;
+            rawData = null;
+            mainParts = null;
+            textSegments = null;
+            if (typeof CollectGarbage === "function") CollectGarbage();
+        }
+
+        // 4. 顯示完成訊息與精確計數
+        var elapsedSeconds = ((Date.now() - startTime) / 1000).toFixed(2);
+        var ignoreTW = (isAlt === "1" || isShift === "1");
+        var suffixTC = "", suffixSC = "", suffixEN = "";
+        if (!ignoreTW) {
+            if (mode.indexOf("S2T") !== -1) {
+                suffixTC = "已套用台灣字形，"; suffixSC = "已套用台湾字形，"; suffixEN = "TW variants applied, ";
+            } else if (mode.indexOf("T2S") !== -1) {
+                suffixTC = "台灣字形已反轉，"; suffixSC = "台湾字形已反转，"; suffixEN = "TW variants reversed, ";
+            }
+        }
+        var logicTC = (isCtx === "1" && isShift === "0") ? "已套用語法邏輯，" : "";
+        var logicSC = (isCtx === "1" && isShift === "0") ? "已套用语法逻辑，" : ""; 
+        var logicEN = (isCtx === "1" && isShift === "0") ? "Context logic applied, " : "";
+
+        var visionTC = (isVis === "1" && isShift === "0") ? "視界邏輯，" : "";
+        var visionSC = (isVis === "1" && isShift === "0") ? "视界逻辑，" : "";
+        var visionEN = (isVis === "1" && isShift === "0") ? "Vision logic applied, " : "";
+
+        status = "✅ BoostCVT " + _L(
+            "Conversion completed (" + msgModeNameEN + ", " + suffixEN + logicEN + visionEN + totalReplaced + " replacements in " + elapsedSeconds + "s, " + threadCount + " threads)",
+            "轉換完成 (" + msgModeNameTC + "，" + suffixTC + logicTC + visionTC + "共取代 " + totalReplaced + " 處，耗時 " + elapsedSeconds + " 秒，" + threadCount + " 執行緒)",
+            "转换完成 (" + msgModeNameSC + "，" + suffixSC + logicSC + visionSC + "共替换 " + totalReplaced + " 处，耗时 " + elapsedSeconds + " 秒，" + threadCount + " 线程)"
+        );
+
+    } catch (e) {
+        alert("Error: " + e.message);
+    } finally {
+        // 回復選取範圍
+        document.selection.SetAnchorPoint(eePosLogical, topX, topY);
+        document.selection.SetActivePoint(eePosLogical, realBottomX, realBottomY, true);
+
+        try { CombineHistory = originalCombine; } catch(e) {}
+        try { Redraw = true; } catch(e) {}
+        ShowTip("", 0);
+        // 還原使用者最初的剪貼簿內容
+        if (backupClip !== null) {
+            clipboardData.setData("Text", backupClip);
+        }
+    }
+}
+
+main();
