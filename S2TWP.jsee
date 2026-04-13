@@ -4,7 +4,7 @@
 #icon="S2TWP.ico"
 
 /**
- * Project: OpenCC for EmEditor Macro v0.32
+ * Project: OpenCC for EmEditor Macro v0.34
  * Author: skyuns (https://github.com/skyuns/EmEditor-OpenCC-Macro)
  * This macro provides foundational conversion based on the OpenCC core lexicon. Note that results may vary from the official implementation.
  * (本巨集基於 OpenCC 核心詞庫提供基礎繁簡轉換。請注意，轉換結果可能與官方執行版本有所出入。)
@@ -963,7 +963,7 @@ function main() {
     const isCtrlPressed = (shell.GetKeyState(0x11) < 0); // 按住 Ctrl : 使用模擬轉換模式
     const isAltPressed = (shell.GetKeyState(0x12) < 0); // 按住 Alt : 忽略 [區塊 D：台灣字形修正 (TWVariants.txt)]
     const isSimulate = (typeof Simulator_MODE !== "undefined" && Simulator_MODE === true) || isCtrlPressed;
-
+    
     const isContextLogicReady = ContextLogic_MODE && !isShiftPressed;
     const effectiveContextLogic = isContextLogicReady && (CURRENT_MODE === "S2T" || CURRENT_MODE === "S2TE");
     const effectiveContextLogic_T2S = isContextLogicReady && CURRENT_MODE === "T2S";
@@ -1063,7 +1063,7 @@ function main() {
         let visionActive = effectiveVisionLogic && isVisionTriggered;
         let visionTC = visionActive ? "視界邏輯，" : "";
         let visionSC = visionActive ? "视界逻辑，" : "";
-        let visionEN = visionActive ? "Vision Logic applied, " : "";
+        let visionEN = visionActive ? "Vision logic applied, " : "";
 
         if (isSimulate) {
             return _L(
@@ -1223,6 +1223,48 @@ function main() {
         ));
         Quit();
     }
+    
+    // 分流門檻：當選取長度超過 30,000,000 字且非複雜模式時，交給 BoostCVT 增壓引擎轉換處理 (需 EmEditor v26.1+)
+    if ((CURRENT_MODE === "T2S" || CURRENT_MODE === "S2T") && txtlen > 30000000 && txtlen < 1500000000 && !isCSVCellSel && !isMultiSel && !isVerticalSel && !isFilterMode) {
+        var scriptDir = ScriptFullName.substring(0, ScriptFullName.lastIndexOf("\\") + 1);
+        var fastMacro = scriptDir + "BoostCVT.jsee";
+        var fastEXE   = scriptDir + "BoostCVT.exe";
+        var fastDLL = scriptDir + "BoostCVT.dll";
+        // BoostCVT 僅在大規模文字且組件存在時啟動。加速組件（EXE/DLL）為選配項目，使用者可視需求自由部署；使用時須經由 .jsee 腳本驅動，不支援獨立運作。
+        if (shell.FileExists(fastMacro) && (shell.FileExists(fastEXE) || shell.FileExists(fastDLL))) {
+            status = _L("⏳ BoostCVT Engine: Converting large file ...", "⏳ BoostCVT 增壓引擎：大型檔案轉換中...", "⏳ BoostCVT 增压引擎：大文件转换中...");
+            
+            // 1. 備份原始剪貼簿 (儲存於本巨集的變數中)
+            var userClipBackup = clipboardData.getData("Text");
+            
+            // 2. 將參數封裝成字串放入剪貼簿 (格式: 標籤|模式|巨集路徑|模擬|語法|視界)
+            var configParams = [
+                "BoostCVT_CONFIG_TOKEN",
+                CURRENT_MODE,
+                ScriptFullName,
+                isSimulate ? "true" : "false",
+                ContextLogic_MODE ? "true" : "false",
+                VisionLogic_MODE ? "true" : "false"
+            ].join("|");
+            
+            clipboardData.setData("Text", configParams);
+
+            try {
+                // 3. 呼叫 BoostCVT 增壓引擎，此時 BoostCVT 會去讀取剪貼簿裡的參數
+                editor.ExecuteMacro(fastMacro, eeRunFile | eeMacroSyncOnly);
+                
+                // 4. 執行完畢後，將剪貼簿恢復成使用者原本的內容並結束
+                clipboardData.clearData("Text", 0);
+                if (userClipBackup !== null) clipboardData.setData("Text", userClipBackup);
+                return; 
+            } catch (e) {
+                // 若增壓引擎執行失敗，仍需還原剪貼簿，並降級跑下方的 V8 邏輯
+                clipboardData.clearData("Text", 0);
+                if (userClipBackup !== null) clipboardData.setData("Text", userClipBackup);
+            }
+        }
+    }
+    // --- 分流結束 ---
 
     // 3. 切塊邏輯 (動態智能切塊版)
     let chunks = [];
@@ -1969,6 +2011,12 @@ function main() {
                         alert(_L("Memory error.", "寫入時發生記憶體問題。", "写入时发生内存問題。"));
                         Quit();
                     }
+                }
+                // 記憶體釋放機制
+                srcText = null;
+                if (res) {
+                    res.text = null;
+                    res = null;
                 }
             }
             ShowTip("", eeShowTipHide);

@@ -4,7 +4,7 @@
 #icon="S2T.ico"
 
 /**
- * Project: OpenCC for EmEditor Macro v0.32
+ * Project: OpenCC for EmEditor Macro v0.34
  * Author: skyuns (https://github.com/skyuns/EmEditor-OpenCC-Macro)
  * This macro provides foundational conversion based on the OpenCC core lexicon. Note that results may vary from the official implementation.
  * (本巨集基於 OpenCC 核心詞庫提供基礎繁簡轉換。請注意，轉換結果可能與官方執行版本有所出入。)
@@ -25,7 +25,7 @@ const Simulator_MODE = false; // 模擬轉換模式 (true: 始終開啟; false: 
 const ContextLogic_MODE = true; // 語法邏輯 ContextLogic 引擎總開關 (true: 啟動; false: 關閉)
 const VisionLogic_MODE = true; // 視界邏輯 VisionLogic 引擎總開關 (true: 啟動; false: 關閉)
 
-// --- [區塊 A：簡轉繁詞組資料 (STPhrases.txt) 更新至 2026-04-05] ---
+// --- [區塊 A：簡轉繁詞組資料 (STPhrases.txt) 更新至 2026-04-12] ---
 const rawPhraseData = `
 # Open Chinese Convert (OpenCC) Dictionary
 # File: STPhrases.txt
@@ -4726,6 +4726,7 @@ const rawPhraseData = `
 倒置干戈	倒置干戈
 倒载干戈	倒載干戈
 倒钟摆效应	倒鐘擺效應
+倒霉	倒霉
 候虫	候蟲
 倚儿不当	倚兒不當
 倚多为胜	倚多爲勝
@@ -26147,7 +26148,7 @@ const rawPhraseData = `
 控制区	控制區
 控制单元	控制單元
 控制卡	控制卡
-控制台	控制檯
+控制台	控制台
 控制器	控制器
 控制塔	控制塔
 控制好	控制好
@@ -28065,6 +28066,7 @@ const rawPhraseData = `
 星表	星表
 星象恶曜	星象惡曜
 星辰表	星辰錶
+星露谷物语	星露谷物語
 星驰电发	星馳電發
 映入眼帘	映入眼簾
 映出	映出
@@ -53329,7 +53331,7 @@ const ContextLogicAnchors = new Set([
 const VisionAnchors = new Set([
 "第一出", "第二出", "第三出", "第四出", "第五出", "第六出", "第七出", "第八出", "第九出", "第十出", "一出剧", "一出戏",
 "喷发", "括发", "断发", "新发", "直发", "肤发", "被发", "顺发", "换发", "上面", "下面", "下面条", "面包", "黑面", "液面", "好困", "发困", "小价", "良价", "贵价", "上签", "于田",
-"马表", "看表", "自动表", "黄金表", "金表", "调表", "米制", "没干", "长胡", "疑云", "上游", "中游", "下游", "国历", "年历", "藏历", "周历", "犹太历", "长历",
+"马表", "看表", "自动表", "黄金表", "金表", "调表", "米制", "没干", "事干", "蛮干", "长胡", "疑云", "上游", "中游", "下游", "国历", "年历", "藏历", "周历", "犹太历", "长历",
 ]);
 
 // 📙 Vision Vocabs: 視界邏輯專用詞庫
@@ -53368,13 +53370,13 @@ const ContextLogic = {
 // 12. 刮	刮 颳
 0x522E: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",n2=t.charAt(i+2)||" ";return("台颱飓阵龙".indexOf(n)!==-1||(n==="了"&&"风台".indexOf(n2)!==-1)||(n==="得"&&"大猛".indexOf(n2)!==-1))?"颳":"刮";},
 // 13. 制	制 製
-0x5236: function(i,t){var pp=t.charAt(i-2)||" ",p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",nn=t.charAt(i+2)||" ";return((n==="面"&&"包条疙肠饼食料纱".indexOf(nn)!==-1)||(p==="国"&&"泰本英德法俄意".indexOf(pp)!==-1)||(p==="线"&&"毛铁".indexOf(pp)!==-1)||(p==="器"&&"机电陶".indexOf(pp)!==-1)||(p==="金"&&("纯合种".indexOf(pp)!==-1||"造成作物饰笔".indexOf(n)!==-1))||(p==="编"&&n==="物")||"锌毛麦粉乳奶石牙芦荟苇蔗籐柳棕桃板檀珊瑚珍珠泥塑玻布羽丝绒纺湾果晶毡骨髓鬃岩扎璃瓷绸胶麻煎炒龟芰焙".indexOf(p)!==-1||"皮碟果酱糕豆篮筐肥刀香油裘雪奶乳酪氢玻鼓酒弓硫钍淀冰".indexOf(n)!==-1)?"製":"制";},
+0x5236: function(i,t){var pp=t.charAt(i-2)||" ",p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",nn=t.charAt(i+2)||" ";return((n==="面"&&"包条疙肠饼食料纱".indexOf(nn)!==-1)||(p==="国"&&"泰本英德法俄意".indexOf(pp)!==-1)||(p==="线"&&"毛铁".indexOf(pp)!==-1)||(p==="器"&&"机电陶".indexOf(pp)!==-1)||(p==="金"&&("纯合种".indexOf(pp)!==-1||"造成作物饰笔".indexOf(n)!==-1))||(p==="编"&&n==="物")||"锌毛麦粉乳奶石牙芦荟苇蔗籐柳棕桃板檀珊瑚珍珠泥塑玻布羽丝绒纺湾果晶毡骨髓鬃岩扎璃瓷绸胶麻煎炒龟芰焙辗碾".indexOf(p)!==-1||"皮碟果酱糕豆篮筐肥刀香油裘雪奶乳酪氢玻鼓酒弓硫钍淀冰".indexOf(n)!==-1)?"製":"制";},
 // 14. 厂	廠 厂
 // 0x5382: 僅處理交叉歧義與雙關陷阱。
 // 15. 历	歷 曆
 0x5386: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return(p==="教"&&(m+"的 ").indexOf(n)!==-1||"文马兰犹林耶主枱".indexOf(p)!==-1&&" 的".indexOf(n)!==-1||"钟鐘".indexOf(n)!==-1)?"曆":"歷";},
 // 16. 发	發 髮
-0x53D1: function(i,t){var pp=t.charAt(i-2)||" ",p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",n2=t.charAt(i+2)||" ";return(p==="生"&&"不代债券博卡工币录料津考药补讲证诊费邮酬帖件聘粮".indexOf(n)!==-1||p==="乱"&&("脾疯怒愁财货票奖薪电邮信布表消讯E".indexOf(n)!==-1||n==="色"==-1||n==="色"&&n2==="情"||n==="文"&&n2==="章"||"贴".indexOf(n)!==-1)||n==="卷"&&"子宗".indexOf(n2)!==-1||n==="色"&&"幕板影显示器".indexOf(p)!==-1||(p==="额"&&"足满金全总差配税员份定限小大超增减名等缺補".indexOf(pp)!==-1&&(m.indexOf(n)!==-1||"工补证料券币代债不".indexOf(n)!==-1))||(p==="金"&&"现资奖薪押礼课稅罚储租赎美".indexOf(pp)!==-1))?"發":((p==="生"&&"贼寇花".indexOf(pp)===-1)||p==="额"||p==="金"||"卷乱修扎插整洁翦松柔鬐鬋髶髹髺髽髾鬃鬄髦彗撩".indexOf(p)!==-1||"卡冠缏髲鬄鬈绺色卷垢".indexOf(n)!==-1||(("顺喷妾".indexOf(p)!==-1)&&"水液初".indexOf(n)!==-1))?"髮":"發";},
+0x53D1: function(i,t){var pp=t.charAt(i-2)||" ",p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",n2=t.charAt(i+2)||" ";return(p==="生"&&"不代债券博卡工币录料津考药补讲证诊费邮酬帖件聘粮".indexOf(n)!==-1||p==="乱"&&("脾疯怒愁财货票奖薪电邮信布表消讯E".indexOf(n)!==-1||n==="色"&&n2==="情"||n==="文"&&n2==="章"||"贴".indexOf(n)!==-1)||n==="卷"&&"子宗".indexOf(n2)!==-1||n==="色"&&"幕板影显示器".indexOf(p)!==-1||(p==="额"&&"足满金全总差配税员份定限小大超增减名等缺補".indexOf(pp)!==-1&&(m.indexOf(n)!==-1||"工补证料券币代债不".indexOf(n)!==-1))||(p==="金"&&"现资奖薪押礼课稅罚储租赎美".indexOf(pp)!==-1))?"發":((p==="生"&&"贼寇花".indexOf(pp)===-1)||p==="额"||p==="金"||"卷乱修扎插整洁翦松柔鬐鬋髶髹髺髽髾鬃鬄髦彗撩".indexOf(p)!==-1||"卡冠缏髲鬄鬈绺色卷垢".indexOf(n)!==-1||(("顺喷妾".indexOf(p)!==-1)&&"水液初".indexOf(n)!==-1))?"髮":"發";},
 // 17. 只	只 隻 祇
 0x53EA: function(i,t){var pp=t.charAt(i-2)||" ",p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";if("会能是有好在可须需要想怕求见剩管顾为限凭供懂配得当通待算".indexOf(n)!==-1)return"只";if(p==="只"&&pp==="一"&&"此言思欠背知".indexOf(n)===-1)return"隻";return((m+"这那哪每单双大小多别换是首鸡牛猪").indexOf(p)!==-1||"狼虎狗猫鸡鸭羊马兽禽虫鸟雁雕鹰脚臂耳艇".indexOf(n)!==-1)?"隻":"只";},
 // 18. 台	臺 檯 颱 台
@@ -53444,7 +53446,7 @@ const ContextLogic = {
 // 50. 扎	扎 紮
 0x624E: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return("缠绞缚系绷".indexOf(p)!==-1||"辫裤发绳制捆束".indexOf(n)!==-1)?"紮":"扎";},
 // 51. 卷	卷 捲
-0x5377: function(i,t){var pp=t.charAt(i-2)||" ",p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";if(p==="发"&&"子宗".indexOf(n)===-1)return"捲";if(n==="轴"&&"垂直|纵向|横向|水平|电脑|萤幕|设定".indexOf(pp+p)!==-1)return"捲";if(n==="上"){if("》．(".indexOf(p)!==-1&&"例传则咏品商契子存实志抄断求注源牍物璞异疏章簿经编纂义羹考腴要规解觿记注话语谈论谱议钞录集事史草补丛".indexOf(pp)!==-1)return"卷";return"捲";}return"卷";},
+0x5377: function(i,t){var pp=t.charAt(i-2)||" ",p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";if("门头向".indexOf(n)!==-1||(p==="发"&&"子宗".indexOf(n)===-1))return"捲";if(n==="轴"&&"垂直|纵向|横向|水平|电脑|萤幕|设定".indexOf(pp+p)!==-1)return"捲";if(n==="上"){if("》．(".indexOf(p)!==-1&&"例传则咏品商契子存实志抄断求注源牍物璞異疏章簿经编纂义羹考腴要规解觿记话语谈论谱议钞录集事史草补丛囊料书法异稾笔答范闻苑说类".indexOf(pp)!==-1)return"卷";return"捲";}return"卷";},
 // 52. 困	困 睏
 //0x56F0: 改用視界邏輯處理。
 // 53. 背	背 揹
@@ -53858,7 +53860,7 @@ function main() {
     const isCtrlPressed = (shell.GetKeyState(0x11) < 0); // 按住 Ctrl : 使用模擬轉換模式
     const isAltPressed = (shell.GetKeyState(0x12) < 0); // 按住 Alt : 忽略 [區塊 D：台灣字形修正 (TWVariants.txt)]
     const isSimulate = (typeof Simulator_MODE !== "undefined" && Simulator_MODE === true) || isCtrlPressed;
-
+    
     const isContextLogicReady = ContextLogic_MODE && !isShiftPressed;
     const effectiveContextLogic = isContextLogicReady && (CURRENT_MODE === "S2T" || CURRENT_MODE === "S2TE");
     const effectiveContextLogic_T2S = isContextLogicReady && CURRENT_MODE === "T2S";
@@ -53958,7 +53960,7 @@ function main() {
         let visionActive = effectiveVisionLogic && isVisionTriggered;
         let visionTC = visionActive ? "視界邏輯，" : "";
         let visionSC = visionActive ? "视界逻辑，" : "";
-        let visionEN = visionActive ? "Vision Logic applied, " : "";
+        let visionEN = visionActive ? "Vision logic applied, " : "";
 
         if (isSimulate) {
             return _L(
@@ -54118,6 +54120,48 @@ function main() {
         ));
         Quit();
     }
+    
+    // 分流門檻：當選取長度超過 30,000,000 字且非複雜模式時，交給 BoostCVT 增壓引擎轉換處理 (需 EmEditor v26.1+)
+    if ((CURRENT_MODE === "T2S" || CURRENT_MODE === "S2T") && txtlen > 30000000 && txtlen < 1500000000 && !isCSVCellSel && !isMultiSel && !isVerticalSel && !isFilterMode) {
+        var scriptDir = ScriptFullName.substring(0, ScriptFullName.lastIndexOf("\\") + 1);
+        var fastMacro = scriptDir + "BoostCVT.jsee";
+        var fastEXE   = scriptDir + "BoostCVT.exe";
+        var fastDLL = scriptDir + "BoostCVT.dll";
+        // BoostCVT 僅在大規模文字且組件存在時啟動。加速組件（EXE/DLL）為選配項目，使用者可視需求自由部署；使用時須經由 .jsee 腳本驅動，不支援獨立運作。
+        if (shell.FileExists(fastMacro) && (shell.FileExists(fastEXE) || shell.FileExists(fastDLL))) {
+            status = _L("⏳ BoostCVT Engine: Converting large file ...", "⏳ BoostCVT 增壓引擎：大型檔案轉換中...", "⏳ BoostCVT 增压引擎：大文件转换中...");
+            
+            // 1. 備份原始剪貼簿 (儲存於本巨集的變數中)
+            var userClipBackup = clipboardData.getData("Text");
+            
+            // 2. 將參數封裝成字串放入剪貼簿 (格式: 標籤|模式|巨集路徑|模擬|語法|視界)
+            var configParams = [
+                "BoostCVT_CONFIG_TOKEN",
+                CURRENT_MODE,
+                ScriptFullName,
+                isSimulate ? "true" : "false",
+                ContextLogic_MODE ? "true" : "false",
+                VisionLogic_MODE ? "true" : "false"
+            ].join("|");
+            
+            clipboardData.setData("Text", configParams);
+
+            try {
+                // 3. 呼叫 BoostCVT 增壓引擎，此時 BoostCVT 會去讀取剪貼簿裡的參數
+                editor.ExecuteMacro(fastMacro, eeRunFile | eeMacroSyncOnly);
+                
+                // 4. 執行完畢後，將剪貼簿恢復成使用者原本的內容並結束
+                clipboardData.clearData("Text", 0);
+                if (userClipBackup !== null) clipboardData.setData("Text", userClipBackup);
+                return; 
+            } catch (e) {
+                // 若增壓引擎執行失敗，仍需還原剪貼簿，並降級跑下方的 V8 邏輯
+                clipboardData.clearData("Text", 0);
+                if (userClipBackup !== null) clipboardData.setData("Text", userClipBackup);
+            }
+        }
+    }
+    // --- 分流結束 ---
 
     // 3. 切塊邏輯 (動態智能切塊版)
     let chunks = [];
@@ -54864,6 +54908,12 @@ function main() {
                         alert(_L("Memory error.", "寫入時發生記憶體問題。", "写入时发生内存問題。"));
                         Quit();
                     }
+                }
+                // 記憶體釋放機制
+                srcText = null;
+                if (res) {
+                    res.text = null;
+                    res = null;
                 }
             }
             ShowTip("", eeShowTipHide);
