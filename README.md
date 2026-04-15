@@ -74,10 +74,14 @@
 | 轉換工具 / 转换工具 | 執行方式 / 执行方式 | 耗時 / 耗时 | 備註 / 备注 |
 | :--- | :--- | :--- | :--- |
 | **EmEditor 官方外掛** | 點選 **簡** 外掛 | **約 1 秒** | 速度最快，但僅限單字轉換，且篩選模式下行序易亂。 
-| **T2S.jsee + BoostCVT** | 點選 **簡** 巨集 | **約 16 秒** | 搭配新開發的 BoostCVT.exe，需 EmEditor v26.1+。 ||
+| **T2S.jsee + BoostCVT** | 點選 **簡** 巨集 | **約 14 秒** | 搭配新開發的 BoostCVT.exe，需 EmEditor v26.1+。 ||
 | **本專案巨集 (T2S.jsee)** | 點選 **簡** 巨集 | **約 32 秒** | 含詞組轉換且不亂序，適合編輯環境直接使用。 |
 | **opencc-1.0.5** | 命令行 (CLI) | 約 55 秒 | 須離開編輯環境操作，輸入命令行指令，不方便。 |
 | **OpenCC.NET.GUI** | 圖形介面批量轉換 | 3 分 50 秒 | 適合多檔案處理，單一檔案操作較繁瑣。 |
+
+
+<img width="1511" height="114" alt="image" src="https://github.com/user-attachments/assets/801c00ee-e64e-4955-aeca-8eda2ffdc5cd" />
+參考 v0.35 優化 BoostCVT 後的執行畫面，比 0.34 更快一些。 
 
 ---
 
