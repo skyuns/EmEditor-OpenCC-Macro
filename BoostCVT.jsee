@@ -1,9 +1,9 @@
 ﻿#language="JScript"
 
-// Project: OpenCC for EmEditor Macro v0.34 BoostCVT
+// Project: OpenCC for EmEditor Macro v0.36 BoostCVT
 // Author: skyuns (https://github.com/skyuns/EmEditor-OpenCC-Macro)
-// Purpose: 中介加速腳本，負責執行智慧切塊並呼叫 BoostCVT 增壓引擎以進行大規模文字的多執行緒高速繁簡轉換。支援 S2T/T2S 雙向模式。
-// Note: BoostCVT 僅在大規模文字且組件存在時啟動。加速組件（EXE/DLL）為選配項目，使用者可視需求自由部署；使用時須經由 .jsee 腳本驅動，不支援獨立運作。
+// Purpose: 中介加速腳本，負責執行智慧切塊並呼叫 BoostCVT 增壓引擎，以自動變速方式進行大規模文字的多執行緒高速繁簡轉換。支援 S2T/T2S 雙向模式。
+// Note: 加速組件為選配項目，僅在大規模文字且組件存在時啟動。使用者可視需求自由部署，只需 EXE 或 DLL 其中一種即可；使用時須經由 .jsee 腳本驅動，不支援獨立運作。
 
 var wsh = new ActiveXObject("WScript.Shell");
 var fso = new ActiveXObject("Scripting.FileSystemObject");
@@ -16,24 +16,89 @@ var msgModeNameTC = "繁轉簡";
 var msgModeNameSC = "繁转简";
 var msgModeNameEN = "T2S";
 
-// 讀取剪貼簿中的參數 (格式: BoostCVT_CONFIG_TOKEN|模式|主巨集路徑|模擬|語法|視界)
+// 讀取剪貼簿中的參數 (格式: BoostCVT_CONFIG_TOKEN|模式|主巨集路徑|模擬|語法|視界|外部詞典)
 // --- [解析詳細開關參數並傳遞給 EXE/DLL] ---
 var mode = "T2S";
 var isCtx = "1";
 var isVis = "1";
-// 偵測當下的鍵盤狀態
+var isExtDict = "0";
+// 偵測鍵盤狀態
 var isShift = (shell.GetKeyState(0x10) < 0) ? "1" : "0";
 var isAlt   = (shell.GetKeyState(0x12) < 0) ? "1" : "0";
 
 var configData = clipboardData.getData("Text");
+
+// 🕵️ 任務 A：輕量偵察兵 (檢查及載入詞典)
+if (configData && configData.indexOf("BoostCVT_LOAD_DICT|") === 0) {
+    var parts = configData.split("|");
+    var dictMode = parts[1];
+    var jseePath = parts[2];
+    var dictDir = fso.BuildPath(scriptDir, "dictionary");
+
+    // 1. 定義映射矩陣 (與 C# 同步)
+    var fPhrase = "", fChar = "", fVariant = "TWVariants.txt", fPhraseExp = "", fException = "";
+    if (dictMode === "T2S") { fPhrase = "TSPhrases.txt"; fChar = "TSCharacters.txt"; fPhraseExp = "T2SrawPhraseExpandedData.txt"; fException = "T2SrawExceptionData.txt"; }
+    else if (dictMode === "S2T" || dictMode === "S2TE") { 
+        fPhrase = "STPhrases.txt"; fChar = "STCharacters.txt"; 
+        fPhraseExp = (dictMode === "S2TE") ? "S2TErawPhraseExpandedData.txt" : "S2TrawPhraseExpandedData.txt";
+        fException = "S2TrawExceptionData.txt";
+    }
+    else if (dictMode === "S2TWP") { fPhrase = "TWPhrases.txt"; fPhraseExp = "S2TWPrawPhraseExpandedData.txt"; fVariant = ""; }
+    else if (dictMode === "TW2SP") { fPhrase = "TWPhrasesRev.txt"; fPhraseExp = "TW2SPrawPhraseExpandedData.txt"; fVariant = ""; }
+
+    // 2. 檢查日期：是否有任何 TXT 比 JSEE 新？
+    var jseeDate = fso.FileExists(jseePath) ? fso.GetFile(jseePath).DateLastModified : new Date(0);
+    var hasNew = false;
+    var checkList = [fPhrase, fChar, fVariant, fPhraseExp, fException];
+
+    for (var i = 0; i < checkList.length; i++) {
+        var fName = checkList[i];
+        if (fName) {
+            var txtPath = fso.BuildPath(dictDir, fName);
+            if (fso.FileExists(txtPath) && fso.GetFile(txtPath).DateLastModified > jseeDate) {
+                hasNew = true;
+                break;
+            }
+        }
+    }
+
+    // 3. 若有更新，使用 ADODB.Stream 以 UTF-8 讀取外部詞典至剪貼簿
+    if (hasNew) {
+        function readTxt(name) {
+            if (!name) return "";
+            var p = fso.BuildPath(dictDir, name);
+            if (!fso.FileExists(p)) return "";
+            try {
+                var stream = new ActiveXObject("ADODB.Stream");
+                stream.Type = 2; // adTypeText
+                stream.Charset = "utf-8";
+                stream.Open();
+                stream.LoadFromFile(p);
+                var txt = stream.ReadText();
+                stream.Close();
+                return txt;
+            } catch(e) { return ""; }
+        }
+        var outData = [readTxt(fPhrase), readTxt(fChar), readTxt(fVariant), readTxt(fPhraseExp), readTxt(fException)];
+        clipboardData.setData("Text", outData.join("|||BLOCK_SEP|||"));
+    } else {
+        // 若無更新，回傳 0
+        clipboardData.setData("Text", "0");
+    }
+    Quit(); // 🛑 任務完成，結束腳本，不啟動引擎
+}
+
+// 🚜 任務 B：重裝變速箱 (大規模文字轉換邏輯)
 if (configData && configData.indexOf("BoostCVT_CONFIG_TOKEN|") === 0) {
     var parts = configData.split("|");
-    if (parts.length >= 6) {
+    // 🌟 7 段參數：TOKEN, Mode, Path, Sim, Ctx, Vis, ExtDict
+    if (parts.length >= 7) {
         mode = parts[1];
         oldMacroPath = parts[2];
         isCtx = (parts[4] === "true") ? "1" : "0";
         isVis = (parts[5] === "true") ? "1" : "0";
-        
+        isExtDict = (parts[6] === "true") ? "1" : "0";
+
         var isS2T = (mode.indexOf("S2T") !== -1);
         msgModeNameTC = isS2T ? "簡轉繁" : "繁轉簡";
         msgModeNameSC = isS2T ? "简转繁" : "繁转简";
@@ -41,8 +106,8 @@ if (configData && configData.indexOf("BoostCVT_CONFIG_TOKEN|") === 0) {
     }
 }
 
-// 重新封裝成 5 段式旗標 (格式範例: "S2T|1|1|0|0")
-var configFlags = mode + "|" + isCtx + "|" + isVis + "|" + isShift + "|" + isAlt;
+// 🌟 第一階段封裝成 6 段式旗標 (格式範例: "S2T|1|1|0|0|1")
+var configFlags = mode + "|" + isCtx + "|" + isVis + "|" + isShift + "|" + isAlt + "|" + isExtDict;
 
 function _L(en, tc, sc) {
     var lang = editor.LangID;
@@ -93,38 +158,30 @@ function main() {
     var bottomY = sel.GetBottomPointY(eePosLogical);
     var topX = sel.GetTopPointX(eePosLogical);
     var bottomX = sel.GetBottomPointX(eePosLogical);
-    var txtlen = sel.Textlength;
+    var txtlen = sel.TextLength;
     var selectedLines = bottomY - topY + 1;
 
-    // 2. 切塊邏輯
-    var chunks = [];
+    // 2. 切塊邏輯基準，核心變速箱 (Continuously Variable Transmission)
     var numChunks = 1;
     if (txtlen > 0) {
-        numChunks = Math.ceil(txtlen / 80000000); 
+        // 彈性變速
+        var divisor = (txtlen > 360000000) ? 180000000 : 60000000;
+        numChunks = Math.ceil(txtlen / divisor);
     } else {
-        if (selectedLines > 5000000) numChunks = 50;
-        else if (selectedLines > 10000) numChunks = 20;
-        else if (selectedLines > 2000) numChunks = 5;
+        if (selectedLines <= 2000) {
+            numChunks = Math.max(1, Math.ceil(selectedLines / 400));
+        } else if (selectedLines <= 10000) {
+            numChunks = Math.floor(5 + (selectedLines - 2000) / 533);
+        } else {
+            numChunks = Math.min(100, Math.floor(20 + (selectedLines - 10000) / 166333));
+        }
     }
     var linesPerChunk = Math.ceil(selectedLines / numChunks);
     if (linesPerChunk < 1) linesPerChunk = 1;
 
-    var currY = topY;
-    while (currY <= bottomY) {
-        var eY = Math.min(currY + linesPerChunk - 1, bottomY);
-        chunks.push({
-            topY: currY, bottomY: eY,
-            isFirst: (currY === topY), isLast: (eY === bottomY)
-        });
-        currY = eY + 1;
-    }
-    chunks.reverse(); // 由下往上處理，避免座標偏移
-
-    // 🌟 動態偵測執行緒 (依據 CPU 設定執行緒)
+    // 🌟 動態偵測執行緒
     var envCores = shell.GetEnv("NUMBER_OF_PROCESSORS");
     var totalLogical = envCores ? parseInt(envCores, 10) : 4;
-
-    // 🌟 執行緒權重策略：邏輯總數 * 0.75
     var threadCount = Math.floor(totalLogical * 0.75);
 
     if (isNaN(threadCount) || threadCount < 2) threadCount = 2;
@@ -132,107 +189,165 @@ function main() {
 
     var totalReplaced = 0;
     try { Redraw = false; } catch(e) {}
-    try { var originalCombine = CombineHistory;
-    CombineHistory = true; 
-    } catch(e) {}
-    var topX = document.selection.GetTopPointX(eePosLogical);
-    var topY = document.selection.GetTopPointY(eePosLogical);
-    var realBottomX = document.selection.GetBottomPointX(eePosLogical);
-    var realBottomY = document.selection.GetBottomPointY(eePosLogical);
+    try { var originalCombine = CombineHistory; CombineHistory = true; } catch(e) {}
+
+    var realBottomX = bottomX;
+    var realBottomY = bottomY;
 
     try {
-        var totalChunks = chunks.length;
-        
-        // 3. 逐塊呼叫 EXE/DLL (穩定架構)
-        for (var c = 0; c < totalChunks; c++) {
-            var progress = Math.round(((c + 1) / totalChunks) * 99); 
+        var currentOrigTopY = topY;
+        var lineOffset = 0; 
+        var SAFE_CHAR_LIMIT = 200000000; // 🌟 安全線：2 億字元 (約 400MB 記憶體)
+
+        // 如果總字元數小於安全極限，則不做動態收縮檢查
+        var skipLengthCheck = (txtlen > 0 && txtlen <= SAFE_CHAR_LIMIT);
+
+        // 3. 逐塊動態收縮與轉換 (Adaptive Line Chunking) 
+        var step = linesPerChunk; // 🌟 變速箱步進變數 (具備記憶功能)
+
+        while (currentOrigTopY <= bottomY) {
+            // 進度計算
+            var currentOrigBottomY = Math.min(currentOrigTopY + step - 1, bottomY);
+            var progress = Math.min(99, Math.round(((currentOrigBottomY - topY + 1) / selectedLines) * 99));
+
+            var currentTopY = currentOrigTopY + lineOffset;
+
+            // 嘗試以最大步伐 (或上一圈的記憶步伐) 往前邁進
+            var currentOrigBottomY = Math.min(currentOrigTopY + step - 1, bottomY);
+            var currentBottomY = currentOrigBottomY + lineOffset;
+
+            var isFirst = (currentOrigTopY === topY);
+            var isLast = (currentOrigBottomY === bottomY);
+
+            sel.Collapse();
+            // 設定起點
+            if (isFirst) sel.SetAnchorPoint(eePosLogical, topX, currentTopY);
+            else sel.SetAnchorPoint(eePosLogical, 1, currentTopY);
+
+            // 設定初步終點
+            if (isLast) sel.SetActivePoint(eePosLogical, bottomX, currentBottomY, true);
+            else sel.SetActivePoint(eePosLogical, 1, currentBottomY + 1, true);
+
+            var len = 0;
+
+            // 🌟 總字元數大於安全線時，執行長度檢測與動態降檔
+            if (!skipLengthCheck) {
+                // 索取當前選取範圍的字元長度
+                len = sel.TextLength;
+
+                // 動態收縮核心 (Adaptive Shrinking) 
+                // 🛑 降檔 (Downshift) 邏輯：如果選取範圍超過安全線，將行數砍半，直到降至安全區間內 
+                while (len > SAFE_CHAR_LIMIT && currentOrigBottomY > currentOrigTopY) {
+                    step = Math.floor(step / 2);
+                    if (step < 1) step = 1;
+
+                    currentOrigBottomY = currentOrigTopY + step - 1;
+                    currentBottomY = currentOrigBottomY + lineOffset;
+                    isLast = (currentOrigBottomY === bottomY);
+
+                    // 重新定位終點
+                    if (isLast) sel.SetActivePoint(eePosLogical, bottomX, currentBottomY, true);
+                    else sel.SetActivePoint(eePosLogical, 1, currentBottomY + 1, true);
+
+                    // 再次探測字元長度
+                    len = sel.TextLength;
+                }
+
+                // 單行字元數攔截
+                if (len > 100000000 && currentOrigBottomY === currentOrigTopY) {
+                    status = "";
+                    alert(_L("⚠️ Single line exceeds 200MB limit. Conversion aborted.", "⚠️ 單行字元數超過 200MB 極限，為避免記憶體溢位，已中止轉換作業。", "⚠️ 单行字符数超过 200MB 极限，为避免内存溢出，已中止转换程序。"));
+                    Quit();
+                }
+            }
+
+            if (sel.TextLength === 0) {
+                // 萬一抓空，強制推進行數
+                currentOrigTopY = currentOrigBottomY + 1;
+                continue;
+            }
+
+            clipboardData.setData("Text", sel.Text);
+            // 顯示進度
             ShowTip(getMsgProcessing(progress, threadCount), 1);
 
-            var chunk = chunks[c];
-            if (chunk.isFirst) sel.SetActivePoint(eePosLogical, topX, chunk.topY);
-            else sel.SetActivePoint(eePosLogical, 1, chunk.topY);
-            
-            if (chunk.isLast) sel.SetActivePoint(eePosLogical, bottomX, chunk.bottomY, true);
-            else sel.SetActivePoint(eePosLogical, 1, chunk.bottomY + 1, true);
+            // 📌 紀錄貼上前底部的 Y 座標 (用以計算精確偏移量)
+            var yBeforePaste = sel.GetBottomPointY(eePosLogical);
 
-            var chunkText = sel.Text;
-            if (!chunkText) continue;
+            // 🌟 第二階段封裝：加上 Threads 成為第 7 段
+            var dynamicFlags = configFlags + "|" + threadCount;
 
-            // 🌟 執行緒分段處理邏輯
-            var subSize = Math.floor(chunkText.length / threadCount);
-            var cuts = [0]; 
-            for (var k = 1; k < threadCount; k++) {
-                var expectedPos = subSize * k;
-                var safeCut = chunkText.indexOf('\n', expectedPos);
-                if (safeCut === -1) safeCut = expectedPos;
-                cuts.push(safeCut);
-            }
-            cuts.push(chunkText.length);
+            // 宣告 runCount 來承接 C# 傳回的 Exit Code
+            var runCount = 0;
 
-            var segments = [];
-            for (var k = 0; k < threadCount; k++) {
-                segments.push(chunkText.substring(cuts[k], cuts[k + 1]));
-            }
-            var bundledText = segments.join("|||CHUNK_SEP|||");
-
-            // 送入剪貼簿
-            clipboardData.setData("Text", bundledText);
-            
-            // --- [ 增壓引擎呼叫邏輯：EXE 優先，DLL 為輔 ] ---
+            // 增壓引擎呼叫邏輯：EXE 優先，DLL 為輔
             if (fso.FileExists(exePath)) {
-                // 🚀 EXE 模式 (最快，免加載開銷)
-                var cmd = '"' + exePath + '" "' + oldMacroPath + '" "' + configFlags + '"';
-                wsh.Run(cmd, 0, true);
+                var cmd = '"' + exePath + '" "' + oldMacroPath + '" "' + dynamicFlags + '"';
+                runCount = wsh.Run(cmd, 0, true);
             } 
             else if (fso.FileExists(dllPath)) {
-                // 🛠️ DLL 模式 (次之，透過 PowerShell 加載)
                 var psCommand = "powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"" +
                     "[Reflection.Assembly]::LoadFile('" + dllPath.replace(/\\/g, "/") + "') | Out-Null; " +
-                    "[MyTools.TextProcessor]::Convert('" + oldMacroPath.replace(/\\/g, "/") + "', '" + configFlags + "');\"";
-                wsh.Run(psCommand, 0, true);
+                    "$c = [MyTools.TextProcessor]::Convert('" + oldMacroPath.replace(/\\/g, "/") + "', '" + dynamicFlags + "'); exit $c\"";
+                runCount = wsh.Run(psCommand, 0, true);
             }
 
-            // 從剪貼簿取回結果並解析計數
-            var rawData = clipboardData.getData("Text");
-            if (rawData !== null) {
-                // 釋放記憶體
+            // 🛑 緊急煞車機制
+            // 如果 runCount 為 -1 (或是 32-bit/64-bit 溢位後的 4294967295)，代表引擎拒絕服務
+            if (runCount === -1 || runCount === 4294967295) {
+                // 隱藏進度條，避免遮擋錯誤訊息
+                ShowTip("", 0);
+
+                // 丟出 Error 物件，跳出當前的 while 迴圈，直奔 main() 最後的 catch 區塊
+                throw new Error(_L(
+                    "BoostCVT Engine error or version mismatch. Operation aborted.",
+                    "BoostCVT 回傳錯誤或版本不符，已中止轉換作業。",
+                    "BoostCVT 回传错误或版本不符，已中止转换程序。"
+                ));
+            }
+
+            var newText = clipboardData.getData("Text");
+            if (newText !== null) {
+                // 🌟 檢測是否夾帶了舊版的通訊標記
+                var sepIdx = newText.lastIndexOf("|||COUNT_SEP|||"); 
+
+                if (sepIdx !== -1) {
+                    var rawCount = newText.substring(sepIdx + 15); // "|||COUNT_SEP|||".length 是 15
+                    runCount = parseInt(rawCount, 10) || 0;
+                    newText = newText.substring(0, sepIdx); 
+                }
+
                 clipboardData.clearData("Text", 0);
-                // 🌟 解析回傳格式 "分段1|||CHUNK_SEP|||分段2...|||COUNT_SEP|||總取代數"
-                var mainParts = rawData.split("|||COUNT_SEP|||");
-                var textSegments = mainParts[0].split("|||CHUNK_SEP|||");
-                
-                // 將多執行緒處理完的所有分段合併寫回編輯器
-                sel.Text = textSegments.join("");
-                
-                // 即時捕捉與校正結束座標
-                if (chunk.isLast) {
+
+                sel.Text = newText;
+                newText = null;
+
+                // 📌 計算貼上後的行數差值
+                var yAfterPaste = sel.GetActivePointY(eePosLogical);
+                lineOffset += (yAfterPaste - yBeforePaste);
+
+                // 檔案的最後一段，抓取結束座標供還原使用
+                if (isLast) {
                     realBottomX = sel.GetActivePointX(eePosLogical);
                     realBottomY = sel.GetActivePointY(eePosLogical);
-                } else {
-                    var newLines = mainParts[0].split("\n").length;
-                    var oldLines = chunkText.split("\n").length;
-                    realBottomY += (newLines - oldLines);
-                }
-                
-                // 強固型計數器
-                if (mainParts.length > 1) {
-                    var count = parseInt(mainParts[1], 10);
-                    if (!isNaN(count)) {
-                        totalReplaced += count;
-                    }
-                }
+                } 
+
+                // 🌟 將 Exit Code (runCount) 累加進替換總數
+                if (!isNaN(runCount)) totalReplaced += runCount;
             }
-            // 記憶體釋放機制
-            chunkText = null;
-            segments = null;
-            bundledText = null;
-            rawData = null;
-            mainParts = null;
-            textSegments = null;
+
+            // 🟢 升檔 (Upshift)：如果路況良好（資料稀疏），嘗試將步伐翻倍恢復速度
+            if (!skipLengthCheck && len > 0 && len < SAFE_CHAR_LIMIT / 2) {
+                step = Math.min(linesPerChunk, step * 2);
+            }
+
             if (typeof CollectGarbage === "function") CollectGarbage();
+
+            // 推進到下一個動態區塊的起點
+            currentOrigTopY = currentOrigBottomY + 1;
         }
 
-        // 4. 顯示完成訊息與精確計數
+        // 4. 顯示完成訊息與計數
         var elapsedSeconds = ((Date.now() - startTime) / 1000).toFixed(2);
         var ignoreTW = (isAlt === "1" || isShift === "1");
         var suffixTC = "", suffixSC = "", suffixEN = "";
@@ -258,16 +373,15 @@ function main() {
         );
 
     } catch (e) {
-        alert("Error: " + e.message);
+        alert("Error: " + e.message + "\nNumber: " + (e.number & 0xFFFF));
     } finally {
-        // 回復選取範圍
         document.selection.SetAnchorPoint(eePosLogical, topX, topY);
         document.selection.SetActivePoint(eePosLogical, realBottomX, realBottomY, true);
 
         try { CombineHistory = originalCombine; } catch(e) {}
         try { Redraw = true; } catch(e) {}
         ShowTip("", 0);
-        // 還原使用者最初的剪貼簿內容
+
         if (backupClip !== null) {
             clipboardData.setData("Text", backupClip);
         }
