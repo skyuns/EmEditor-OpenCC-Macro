@@ -4,12 +4,13 @@
 #icon="T2S.ico"
 
 /**
- * Project: OpenCC for EmEditor Macro v0.34
+ * Project: OpenCC for EmEditor Macro v0.36
  * Author: skyuns (https://github.com/skyuns/EmEditor-OpenCC-Macro)
  * This macro provides foundational conversion based on the OpenCC core lexicon. Note that results may vary from the official implementation.
  * (本巨集基於 OpenCC 核心詞庫提供基礎繁簡轉換。請注意，轉換結果可能與官方執行版本有所出入。)
  * Data Source: OpenCC (https://github.com/BYVoid/OpenCC)
  * License: Apache License 2.0
+ * Environment: Windows 11 + EmEditor 26.1 preview (較舊版本可能存在相容性問題)
  * 轉換流程：1. 讀取主字典映射 -> 2. 封裝 Trie 字典樹 -> 3. 動態分段執行 FMM 匹配 -> 4. 語意邏輯轉換 (Context Logic)
  * 簡易測試：乾隆在乾淨的房間裡瞭望遠方，看見屋簷下一齣戲正在上演，於是轉身一出去，扭轉乾坤。
  * 參考結果：乾隆在干净的房间里瞭望远方，看见屋檐下一出戏正在上演，于是转身一出去，扭转乾坤。
@@ -22,6 +23,7 @@ const CURRENT_MODE = "T2S";
 const Simulator_MODE = false; // 模擬轉換模式 (true: 始終開啟; false: 需按住 Ctrl 觸發)
 const ContextLogic_MODE = true; // 語法邏輯 ContextLogic 引擎總開關 (true: 啟動; false: 關閉)
 const VisionLogic_MODE = false; // 視界邏輯 VisionLogic 引擎總開關 (true: 啟動; false: 關閉)
+const Use_ExternalDict = false; // 外部詞典 (true: 啟動; false: 關閉)：是否載入較新的外部詞典檔案 ( dictionary/*.txt )
 
 // --- [區塊 A：繁轉簡詞組資料 (TSPhrases.txt) 更新至 2026-03-26] ---
 const rawPhraseData = `
@@ -4516,11 +4518,11 @@ const ContextLogic_T2S = {
 // 2. 覆	覆 复
 0x8986: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return(n==="函" || "批往敬賜".indexOf(p)!==-1)?"复":"覆";},
 // 3. 藉	藉 借
-0x85C9: function(i,t){var n=t.charAt(i+1)||" ";return("勢題".indexOf(n)!==-1)?"借":"藉";},
+0x85C9: function(i,t){var n=t.charAt(i+1)||" ";return("勢題著".indexOf(n)!==-1)?"借":"藉";},
 // 4. 鍊	炼 链 𫔀
 0x934A: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ";return("鋸輪軌帶球齒".indexOf(n)!==-1||"狗貓腳錶表皮珠銅鋼瑙晶車鋁塑膠".indexOf(p)!==-1)?"链":"炼";},
 // 5. 著	著 着
-0x8457: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",n2=t.charAt(i+2)||" ",pp=t.charAt(i-2)||" ";return(p==="合"?("配湊正眼嘴".indexOf(pp)===-1&&"眼嘴你我他是就".indexOf(n)===-1&&("者書文作本論錄的之《〈 ,.。、；：？！)]}\n\r ".indexOf(n)!==-1||((m+"這那哪整半").indexOf(n)!==-1&&"本部冊卷篇".indexOf(n2)!==-1))):("編校".indexOf(p)!==-1?("者作名稱書述錄史說志式於白稿典篇卷的之 ,.。、；：？！)]}\n\r ".indexOf(n)!==-1||((m+"這那哪整半").indexOf(n)!==-1&&"本部冊卷篇".indexOf(n2)!==-1)):("丟享付伴住來修做停傷入分切刮到刷割加印去取叫吃吸吻哭唱唸問喊喝嗅嘗回坐執報塗墊夠完寫帶幫建忘念怨恨想愛感憾成戴打扔托扶批找抄抓抖折抬抱抹拂拄拆拉拍拎拔拖拭拾拿持指按挖捏捧捲掃掛接推掩描提插換揮揹搓搬摔摘摸摺撈撕撞撬撿擁擊擠擦擱擺攔攬收放教敲數是有梳標死殺泡洗活流照熨爬獵玩用留畫發盯省看睡祝空穿窺站笑等終給練罰罵翻聞聽背脫舔舞蓋裁補要見覺訂記許說談請講謝讀讓買賄賣贊走趴跑跑跪跳踢躺辦送逃進過遵選鋪鋸錄鎖開關隨飛騎黏夢趁纏划沿順懷朝沉衝貼".indexOf(p)===-1&&("者作名稱書述錄史說志式於白稿典篇卷".indexOf(n)!==-1||"名巨鉅昭顯原譯撰專論卓新遺傑孤絕所代土".indexOf(p)!==-1))))?"著":"着";},
+0x8457: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",n2=t.charAt(i+2)||" ",pp=t.charAt(i-2)||" ";return(p==="合"?("配湊正眼嘴".indexOf(pp)===-1&&"眼嘴你我他是就".indexOf(n)===-1&&("者書文作本論錄的之《〈 ,.。、；：？！)]}\n\r ".indexOf(n)!==-1||((m+"這那哪整半").indexOf(n)!==-1&&"本部冊卷篇".indexOf(n2)!==-1))):("編校".indexOf(p)!==-1?("者作名稱書述錄史說志式於白稿典篇卷的之 ,.。、；：？！)]}\n\r ".indexOf(n)!==-1||((m+"這那哪整半").indexOf(n)!==-1&&"本部冊卷篇".indexOf(n2)!==-1)):("丟享付伴住來修做停傷入分切刮到刷割加印去取叫吃吸吻哭唱唸問喊喝嗅嘗回坐執報塗墊夠完寫帶幫建忘念怨恨想愛感憾成戴打扔托扶批找抄抓抖折抬抱抹拂拄拆拉拍拎拔拖拭拾拿持指按挖捏捧捲掃掛接推掩描提插換揮揹搓搬摔摘摸摺撈撕撞撬撿擁擊擠擦擱擺攔攬收放教敲數是有梳標死殺泡洗活流照熨爬獵玩用留畫發盯省看睡祝空穿窺站笑等終給練罰罵翻聞聽背脫舔舞蓋裁補要見覺訂記許說談請講謝讀讓買賄賣贊走趴跑跑跪跳踢躺辦送逃進過遵選鋪鋸錄鎖開關隨飛騎黏夢趁纏划沿順懷朝沉衝貼".indexOf(p)===-1&&("者作名稱書述錄史志式於白稿典篇卷".indexOf(n)!==-1||"名巨鉅昭顯原譯撰專論卓新遺傑孤絕所代土".indexOf(p)!==-1))))?"著":"着";},
 // 6. 鍾	钟 锺
 0x937E: function(i,t){var p=t.charAt(i-1)||" ",n=t.charAt(i+1)||" ",n2=t.charAt(i+2)||" ";return(p==="姓"||sn2.indexOf("|"+n+n2+"|")!==-1)?"锺":"钟";}
 };
@@ -4542,10 +4544,10 @@ async function compareWithGoogle(origText, macroText, modeNames) {
     // 第一次按 Ctrl 且網頁未開啟時：初始化 WebBar
     if (!WebBar.Visible) {
         let waitDesc = _L("Please run the macro again to display the results.", "請再次執行巨集以顯示比對結果。", "请再次执行宏以显示对比结果。");
-        
+
         var waitHtml = `<!DOCTYPE html><html><body style='font-family:Segoe UI, sans-serif; display:flex; justify-content:center; align-items:center; height:100vh; background:#f4f4f4; margin:0;'><div style='text-align:center; padding:30px; background:#fff; border-radius:10px; box-shadow:0 4px 15px rgba(0,0,0,0.1);'><h2 style='color:#0275d8; margin-top:0;'>${lblSimMode}</h2><p style='color:#555; font-size:16px; margin-bottom:0;'>${waitDesc}</p></div></body></html>`;
         var dataUrl = "data:text/html;charset=utf-8," + encodeURIComponent(waitHtml);
-        
+
         WebBar.Open(dataUrl);
         shell.KeepRunning = false;
         return;
@@ -4569,7 +4571,7 @@ async function compareWithGoogle(origText, macroText, modeNames) {
             var oldChars = Array.from(oldStr), newChars = Array.from(newStr);
             var m = oldChars.length, n = newChars.length;
             var dp = Array(m + 1).fill(null).map(function() { return Array(n + 1).fill(0); });
-            
+
             for (var i = 1; i <= m; i++) {
                 for (var j = 1; j <= n; j++) {
                     if (oldChars[i - 1] === newChars[j - 1]) dp[i][j] = dp[i - 1][j - 1] + 1;
@@ -4632,23 +4634,23 @@ async function compareWithGoogle(origText, macroText, modeNames) {
         var normOrig = origText.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
         var normMacro = macroText.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
         var normGoogle = googleText.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-        
+
         var globalTrimRegex = /^[\s\u3000]+|[\s\u3000]+$/g;
         var globalOrig = normOrig.replace(globalTrimRegex, '');
         var globalMacro = normMacro.replace(globalTrimRegex, '');
-        
+
         var globalGoogle = (googleText === apiErrorMsg) ? apiErrorMsg : normGoogle.replace(globalTrimRegex, '');
-        
+
         var origTrimmed = trimEveryLine(globalOrig);
         var macroTrimmed = trimEveryLine(globalMacro);
         var googleTrimmed = (googleText === apiErrorMsg) ? apiErrorMsg : trimEveryLine(globalGoogle);
-        
+
         var strippedCount = normOrig.length - origTrimmed.length;
 
         var diffsOM = computeDiff(origTrimmed, macroTrimmed);
         var macroColor = new Array(macroTrimmed.length).fill('black');
         var m_idx = 0;
-        
+
         for (var i = 0; i < diffsOM.length; i++) {
             var dOM = diffsOM[i];
             if (dOM.type === 'equal') {
@@ -4733,7 +4735,7 @@ async function compareWithGoogle(origText, macroText, modeNames) {
                 `，删除头尾空白 ${strippedCount} 个`
             );
         }
-        
+
         var summaryText = _L(
             `📊 Total selected: ${origText.length} chars. Macro vs Google diff: ${diffCount} chars${strippedMsg}.`,
             `📊 總共選取 ${origText.length} 字，巨集與 Google 翻譯差異 ${diffCount} 字${strippedMsg}。`,
@@ -4751,7 +4753,7 @@ async function compareWithGoogle(origText, macroText, modeNames) {
                 "💡 Tip: Hold Ctrl and click the Macro Button to trigger Simulation Mode.",
                 "💡 提示：按住 Ctrl 鍵並點擊「巨集按鈕」即可觸發模擬比對模式。",
                 "💡 提示：按住 Ctrl 键并点击「宏按钮」即可触发模拟比对模式。"
-                
+
             );
             footerHtml = `<div class="footer-hint">${lblFooter}</div>`;
         }
@@ -4786,16 +4788,16 @@ async function compareWithGoogle(origText, macroText, modeNames) {
       border-left: 5px solid #ccc;
       box-shadow: 0 2px 5px rgba(0,0,0,0.05);
   }
-  
+
   .block-orig { border-left-color: #af7ac5; }
   .block-orig .label { color: #8e44ad; }
-  
+
   .block-macro { border-left-color: #58d68d; }
   .block-macro .label { color: #27ae60; }
-  
+
   .block-google { border-left-color: #5dade2; }
   .block-google .label { color: #2980b9; }
-  
+
   .header-row {
       margin-bottom: 8px;
   }
@@ -4804,7 +4806,7 @@ async function compareWithGoogle(origText, macroText, modeNames) {
       letter-spacing: 1px;
       margin: 0;
   }
-  
+
   pre { 
       font-family: inherit; 
       font-size: 16px;
@@ -4814,10 +4816,10 @@ async function compareWithGoogle(origText, macroText, modeNames) {
       margin: 0;
       color: #333;
   }
-  
+
   .c-blue { color: #0275d8; font-weight: bold; }
   .c-red { color: #d9534f; font-weight: bold; border-bottom:1px #f5c2c7 solid;}
-  
+
   .summary {
       margin-top: 20px;
       font-size: 15px;
@@ -4884,7 +4886,7 @@ async function compareWithGoogle(origText, macroText, modeNames) {
         }
         try {
             WebBar.SetFocus();
-            
+
             let safeHTML = htmlString;
             try {
                 if (web.window.trustedTypes && web.window.trustedTypes.createPolicy) {
@@ -4907,12 +4909,12 @@ async function compareWithGoogle(origText, macroText, modeNames) {
 
 // --- [##核心邏輯區##] ---
 function main() {
-    // 0. 偵測外部是否開啟模擬模式 (智慧判定) 與 控制鍵狀態
+    // 0. 偵測是否開啟模擬模式 與 控制鍵狀態
     const isShiftPressed = (shell.GetKeyState(0x10) < 0); // 按住 Shift : 僅使用標準詞組與單字，忽略 [視界邏輯]、[語法邏輯]、[區塊 B：自訂擴充覆寫詞庫]、[區塊 D：台灣字形修正 (TWVariants.txt)]、[區塊 E：台灣字形修正例外清單]
     const isCtrlPressed = (shell.GetKeyState(0x11) < 0); // 按住 Ctrl : 使用模擬轉換模式
     const isAltPressed = (shell.GetKeyState(0x12) < 0); // 按住 Alt : 忽略 [區塊 D：台灣字形修正 (TWVariants.txt)]
     const isSimulate = (typeof Simulator_MODE !== "undefined" && Simulator_MODE === true) || isCtrlPressed;
-    
+
     const isContextLogicReady = ContextLogic_MODE && !isShiftPressed;
     const effectiveContextLogic = isContextLogicReady && (CURRENT_MODE === "S2T" || CURRENT_MODE === "S2TE");
     const effectiveContextLogic_T2S = isContextLogicReady && CURRENT_MODE === "T2S";
@@ -4920,7 +4922,7 @@ function main() {
     const isVisionLogicReady = VisionLogic_MODE && !isShiftPressed;
     const effectiveVisionLogic = isVisionLogicReady && (CURRENT_MODE === "S2T" || CURRENT_MODE === "S2TE");
 
-    // 1. 動態模式與多國語言設定
+    // 1. 動態模式與語言設定
     const langId = editor.LangID;
     const _L = (en, tc, sc) => {
         if (langId === 1028) return tc;
@@ -4929,7 +4931,7 @@ function main() {
     };
 
     let msgModeNameTC = "", msgModeNameSC = "", msgModeNameEN = "";
-    
+
     switch(CURRENT_MODE) {
         case "T2S":
             msgModeNameTC = "繁轉簡"; msgModeNameSC = "繁转简"; msgModeNameEN = "T2S"; break;
@@ -5031,7 +5033,7 @@ function main() {
 
     const startTime = Date.now();
 
-    // 2. 選取與防呆處理 (穩定版)
+    // 2. 選取處理
     let isCSVCellSel = false;
 
     try {
@@ -5043,7 +5045,7 @@ function main() {
         try { 
             checkText = document.selection.Text; 
         } catch(e) {}
-        
+
         if (checkText.length > 0) {
             isCSVCellSel = true;
         }
@@ -5065,7 +5067,7 @@ function main() {
     const selectedLines = bottomY - topY + 1;
     const selectedWidth = Math.abs(bottomX - topX);
 
-    // --- [全域安全檢測] 偵測選取長度並格式化數字 ---
+    // 偵測選取長度並格式化數字
     status = _L(
         "⏳ Detecting selection size...", 
         "⏳ 正在檢測選取範圍大小...", 
@@ -5090,13 +5092,13 @@ function main() {
                 ));
             Quit();
         }
-        // B. 實際模式極限攔截 (1,500,000,000 字元)
-        if (!isSimulate && txtlen > 1500000000) {
+        // B. 實際模式極限攔截 (2,000,000,000 字元)
+        if (!isSimulate && txtlen > 2000000000) {
             status = "";
             alert(_L(
-                "⚠️ Selection exceeds 1,500,000,000 characters. Due to architectural limits, conversion is aborted to protect memory and prevent crashes. \n\nPlease reduce the selection range and convert in segments.",
-                "⚠️ 選取內容超過 1,500,000,000 字元。因架構問題，為保護系統記憶體避免當機，系統已攔截並中止轉換。\n\n建議縮小選取範圍，分段進行轉換。",
-                "⚠️ 选取内容超过 1,500,000,000 字符。因架构问题，为保护系统内存避免当机，系统已拦截并中止转换。\n\n建议缩小选取范围，分段进行转换。"
+                "⚠️ Selection exceeds 2,000,000,000 characters. Due to architectural limits, conversion is aborted to protect memory and prevent crashes. \n\nPlease reduce the selection range and convert in segments.",
+                "⚠️ 選取內容超過 2,000,000,000 字元。因架構問題，為保護系統記憶體避免當機，系統已攔截並中止轉換。\n\n建議縮小選取範圍，分段進行轉換。",
+                "⚠️ 选取内容超过 2,000,000,000 字符。因架构问题，为保护系统内存避免当机，系统已拦截并中止转换。\n\n建议缩小选取范围，分段进行转换。"
             ));
             Quit();
         }
@@ -5116,7 +5118,7 @@ function main() {
     let initialText = "";
     if (isSimulate) {
         try { initialText = document.selection.Text; } catch(e) {}
-        
+
         if (initialText.length > 200) {
             status = "";
                 alert(_L(
@@ -5128,12 +5130,12 @@ function main() {
         }
     }
 
-    if (!isCSVCellSel && selectedLines > 15000000) {
+    if (!isCSVCellSel && selectedLines > 20000000) {
         status = "";
         alert(_L(
-            "⚠️ Selected lines exceed 15,000,000 limit. Conversion aborted. Please reduce selection.",
-            "⚠️ 選取總行數超過 1500 萬行，超出安全轉換限制。\n為避免系統無回應，請減少選取範圍後再試。",
-            "⚠️ 选取总行数超过 1500 万行，超出安全转换限制。\n为避免系统无回应，请减少选取范围后再试。"
+            "⚠️ Selected lines exceed 20,000,000 limit. Conversion aborted. Please reduce selection.",
+            "⚠️ 選取總行數超過 2000 萬行，超出安全轉換限制，已中止轉換作業。\n為避免系統無回應，請減少選取範圍後再試。",
+            "⚠️ 选取总行数超过 2000 万行，超出安全转换限制，已中止转换程序。\n为避免系统无回应，请减少选取范围后再试。"
         ));
         Quit();
     }
@@ -5172,60 +5174,64 @@ function main() {
         ));
         Quit();
     }
-    
+
     // 分流門檻：當選取長度超過 30,000,000 字且非複雜模式時，交給 BoostCVT 增壓引擎轉換處理 (需 EmEditor v26.1+)
-    if ((CURRENT_MODE === "T2S" || CURRENT_MODE === "S2T") && txtlen > 30000000 && txtlen < 1500000000 && !isCSVCellSel && !isMultiSel && !isVerticalSel && !isFilterMode) {
+    if ((CURRENT_MODE === "T2S" || CURRENT_MODE === "S2T") && txtlen > 30000000 && txtlen < 2000000000 && !isCSVCellSel && !isMultiSel && !isVerticalSel && !isFilterMode) {
         var scriptDir = ScriptFullName.substring(0, ScriptFullName.lastIndexOf("\\") + 1);
         var fastMacro = scriptDir + "BoostCVT.jsee";
         var fastEXE   = scriptDir + "BoostCVT.exe";
         var fastDLL = scriptDir + "BoostCVT.dll";
-        // BoostCVT 僅在大規模文字且組件存在時啟動。加速組件（EXE/DLL）為選配項目，使用者可視需求自由部署；使用時須經由 .jsee 腳本驅動，不支援獨立運作。
+        // BoostCVT 加速組件為選配項目，僅在大規模文字且組件存在時啟動。使用者可視需求自由部署，只需 EXE 或 DLL 其中一種即可；使用時須經由 .jsee 腳本驅動，不支援獨立運作。
         if (shell.FileExists(fastMacro) && (shell.FileExists(fastEXE) || shell.FileExists(fastDLL))) {
             status = _L("⏳ BoostCVT Engine: Converting large file ...", "⏳ BoostCVT 增壓引擎：大型檔案轉換中...", "⏳ BoostCVT 增压引擎：大文件转换中...");
-            
-            // 1. 備份原始剪貼簿 (儲存於本巨集的變數中)
+
+            // 備份原始剪貼簿
             var userClipBackup = clipboardData.getData("Text");
-            
-            // 2. 將參數封裝成字串放入剪貼簿 (格式: 標籤|模式|巨集路徑|模擬|語法|視界)
+
+            // 將參數封裝成字串放入剪貼簿 (格式: 標籤|模式|巨集路徑|模擬|語法|視界|外部詞典)
             var configParams = [
                 "BoostCVT_CONFIG_TOKEN",
                 CURRENT_MODE,
                 ScriptFullName,
                 isSimulate ? "true" : "false",
                 ContextLogic_MODE ? "true" : "false",
-                VisionLogic_MODE ? "true" : "false"
+                VisionLogic_MODE ? "true" : "false",
+                Use_ExternalDict ? "true" : "false"
             ].join("|");
-            
+
             clipboardData.setData("Text", configParams);
 
             try {
-                // 3. 呼叫 BoostCVT 增壓引擎，此時 BoostCVT 會去讀取剪貼簿裡的參數
+                // 呼叫 BoostCVT 增壓引擎
                 editor.ExecuteMacro(fastMacro, eeRunFile | eeMacroSyncOnly);
-                
-                // 4. 執行完畢後，將剪貼簿恢復成使用者原本的內容並結束
+
+                // 執行完畢後，恢復剪貼簿
                 clipboardData.clearData("Text", 0);
                 if (userClipBackup !== null) clipboardData.setData("Text", userClipBackup);
                 return; 
             } catch (e) {
-                // 若增壓引擎執行失敗，仍需還原剪貼簿，並降級跑下方的 V8 邏輯
+                // 若增壓引擎執行失敗，仍需還原剪貼簿，並降級跑 V8 邏輯
                 clipboardData.clearData("Text", 0);
                 if (userClipBackup !== null) clipboardData.setData("Text", userClipBackup);
             }
         }
     }
-    // --- 分流結束 ---
 
-    // 3. 切塊邏輯 (動態智能切塊版)
+    // 3. 動態切塊邏輯
     let chunks = [];
     if (!isCSVCellSel && !isFilterMode && !isMultiSel) {
         let numChunks = 1;
 
         if (txtlen > 0) {
-            numChunks = Math.ceil(txtlen / 30000000);
+            numChunks = Math.ceil(txtlen / 60000000);
         } else {
-            if (selectedLines > 5000000) numChunks = 50;
-            else if (selectedLines > 10000) numChunks = 20;
-            else if (selectedLines > 2000) numChunks = 5;
+            if (selectedLines <= 2000) {
+                    numChunks = Math.max(1, Math.ceil(selectedLines / 400));
+                } else if (selectedLines <= 10000) {
+                    numChunks = Math.floor(5 + (selectedLines - 2000) / 533);
+                } else {
+                    numChunks = Math.min(100, Math.floor(20 + (selectedLines - 10000) / 166333));
+                }
         }
 
         let linesPerChunk = Math.ceil(selectedLines / numChunks);
@@ -5243,22 +5249,112 @@ function main() {
         chunks.reverse(); 
     }
 
-    // 4. 動態構建 Trie 引擎
+// 4. 動態構建 Trie 引擎
     status = _L(
         `⏳ Building Trie Engine & Processing (${msgModeNameEN})...`, 
         `⏳ 建立字典樹引擎，${msgModeNameTC} 處理中...`, 
         `⏳ 建立字典树引擎，${msgModeNameSC} 处理中...`
     );
 
+    // 🌟 連接外部詞典 (JS偵察兵 + C#備援)
+    let currentPhraseData, currentCharData, currentTWVariants, currentExceptionData, currentPhraseExpandedData;
+    let dictLoadedFromExe = false;
+
+    // 🛡️ 第一層：總開關
+    if (Use_ExternalDict) {
+        try {
+            let scriptDir = ScriptFullName.substring(0, ScriptFullName.lastIndexOf("\\") + 1);
+            let fastMacro = scriptDir + "BoostCVT.jsee";
+            let fastEXE = scriptDir + "BoostCVT.exe";
+            let fastDLL = scriptDir + "BoostCVT.dll";
+
+            let backupClip = clipboardData.getData("Text");
+
+            // 🕵️ 第二層：呼叫 JS 輕量偵察兵
+            let jsScoutSuccess = false;
+            if (shell.FileExists(fastMacro)) {
+
+                clipboardData.setData("Text", "BoostCVT_LOAD_DICT|" + CURRENT_MODE + "|" + ScriptFullName);
+                // 執行 JS 變速箱 (化身為偵察兵)
+                editor.ExecuteMacro(fastMacro, eeRunFile | eeMacroSyncOnly);
+
+                let newClip = clipboardData.getData("Text") || "";
+                if (newClip.indexOf("|||BLOCK_SEP|||") !== -1) {
+                    let newData = newClip.split("|||BLOCK_SEP|||");
+                    if (newData.length >= 5) {
+                        currentPhraseData = newData[0];
+                        currentCharData = newData[1];
+                        currentTWVariants = newData[2];
+                        currentPhraseExpandedData = newData[3];
+                        currentExceptionData = newData[4];
+                        dictLoadedFromExe = true;
+                        jsScoutSuccess = true;
+                    }
+                } else if (newClip === "0") {
+                    // 偵察兵回報：檔案日期沒有更新，直接跳過 C# 讀取
+                    dictLoadedFromExe = false; 
+                    jsScoutSuccess = true; 
+                }
+            }
+
+            // 🚜 第三層：若 JS 偵察兵意外失效，啟用 C# 雙軌備援讀取
+            if (!jsScoutSuccess && (shell.FileExists(fastEXE) || shell.FileExists(fastDLL))) {
+                if (shell.FileExists(fastEXE)) {
+                    // 🚀 途徑一：使用 conhost.exe 無頭模式執行 EXE
+                    let dictConfig = CURRENT_MODE + "|" + ScriptFullName;
+                    let strCommand = "conhost.exe";
+                    let strParameter = '--headless "' + fastEXE + '" LOAD_DICT "' + dictConfig + '"';
+
+                    shell.Run(strCommand, 0, true, strParameter);
+                } else {
+                    // 🛡️ 途徑二：透過 PowerShell 在記憶體中載入 DLL
+                    let safeDllPath = fastDLL.replace(/\\/g, "/");
+                    let dictConfig = CURRENT_MODE + "|" + ScriptFullName.replace(/\\/g, "/");
+                    let strCommand = "conhost.exe";
+                    let strParameter = "--headless powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"& {[Reflection.Assembly]::LoadFile('" + safeDllPath + "') | Out-Null; [MyTools.TextProcessor]::Convert('LOAD_DICT', '" + dictConfig + "');}\"";
+
+                    shell.Run(strCommand, 0, true, strParameter);
+                }
+
+                let csharpClip = clipboardData.getData("Text") || "";
+                if (csharpClip.indexOf("|||BLOCK_SEP|||") !== -1) {
+                    let newData = csharpClip.split("|||BLOCK_SEP|||");
+                    if (newData.length >= 5) {
+                        currentPhraseData = newData[0];
+                        currentCharData = newData[1];
+                        currentTWVariants = newData[2];
+                        currentPhraseExpandedData = newData[3];
+                        currentExceptionData = newData[4];
+                        dictLoadedFromExe = true;
+                    }
+                }
+            }
+
+            // 釋放記憶體並還原剪貼簿
+            clipboardData.clearData("Text", 0);
+            if (backupClip !== null) clipboardData.setData("Text", backupClip);
+
+        } catch(e) {}
+    }
+
+    // 🛡️ Fallback 機制：如果沒執行、失敗、或沒更新，退回使用全域常數
+    if (!dictLoadedFromExe) {
+        currentPhraseData = typeof rawPhraseData !== "undefined" ? rawPhraseData : "";
+        currentCharData = typeof rawCharData !== "undefined" ? rawCharData : "";
+        currentTWVariants = typeof rawTWVariants !== "undefined" ? rawTWVariants : "";
+        currentPhraseExpandedData = typeof rawPhraseExpandedData !== "undefined" ? rawPhraseExpandedData : "";
+        currentExceptionData = typeof rawExceptionData !== "undefined" ? rawExceptionData : "";
+    }
+
     const variantMap = new Map();
     const finalDict = new Map();
 
     const exceptionSet = new Set();
     const exceptionMap = new Map();
-    
-    if (!isShiftPressed && typeof rawExceptionData !== "undefined" && rawExceptionData) {
+
+    if (!isShiftPressed && typeof currentExceptionData !== "undefined" && currentExceptionData) {
     try {
-        const linesEx = rawExceptionData.split("\n");
+        const linesEx = currentExceptionData.split("\n");
         for (let i = 0; i < linesEx.length; i++) {
             let line = linesEx[i];
             if (!line || line[0] === "#" || line[0] === "\r") continue;
@@ -5277,10 +5373,10 @@ function main() {
     const isS2TVariant = (CURRENT_MODE === "S2T" || CURRENT_MODE === "S2TE") && !isAltPressed && !isShiftPressed;
     const isT2SVariant = (CURRENT_MODE === "T2S") && !isAltPressed && !isShiftPressed;
     const needVariants = isS2TVariant || isT2SVariant;
-    
-    if (needVariants && typeof rawTWVariants !== "undefined" && rawTWVariants) {
+
+    if (needVariants && typeof currentTWVariants !== "undefined" && currentTWVariants) {
     try {
-        const linesTW = rawTWVariants.split("\n");
+        const linesTW = currentTWVariants.split("\n");
         for (let i = 0; i < linesTW.length; i++) {
             let line = linesTW[i];
             if (!line || line[0] === "#" || line[0] === "\r") continue;
@@ -5333,13 +5429,13 @@ function main() {
 };
 
     if (!isShiftPressed) {
-        if (typeof rawExceptionData !== "undefined") try { parseMainData(rawExceptionData); } catch(e){}
-        if (typeof rawPhraseExpandedData !== "undefined") try { parseMainData(rawPhraseExpandedData); } catch(e){}
+        if (typeof currentExceptionData !== "undefined") try { parseMainData(currentExceptionData); } catch(e){}
+        if (typeof currentPhraseExpandedData !== "undefined") try { parseMainData(currentPhraseExpandedData); } catch(e){}
     }
-    try { parseMainData(rawPhraseData); } catch(e){}
-    
+    try { if (typeof currentPhraseData !== "undefined") parseMainData(currentPhraseData); } catch(e){}
+
     if (CURRENT_MODE !== "S2TWP" && CURRENT_MODE !== "TW2SP") {
-        try { parseMainData(rawCharData); } catch(e){}
+        try { if (typeof currentCharData !== "undefined") parseMainData(currentCharData); } catch(e){}
     }
 
     if (isS2TVariant) {
@@ -5396,7 +5492,6 @@ function main() {
         node.o = key;
     }
 
-    // 將語法邏輯從 Hash 物件轉為固定長度陣列，達成 O(1) 極速讀取
     const activeLogicArr = new Array(65536);
     let hasLogic = false;
     const currentLogicObj = effectiveContextLogic ? ContextLogic : (effectiveContextLogic_T2S ? ContextLogic_T2S : null);
@@ -5415,10 +5510,10 @@ function main() {
         let lastMatchEnd = 0;
         let replaceCount = 0;
         const fastSkipLimit = (CURRENT_MODE === "S2TWP" || CURRENT_MODE === "TW2SP") ? 0x21 : 0x80;
-        
+
         while (i < textLen) {
             let firstCode = srcText.charCodeAt(i);
-            
+
             if (firstCode < fastSkipLimit) { 
                 while (i < textLen && srcText.charCodeAt(i) < fastSkipLimit) i++;
                 continue;
@@ -5446,7 +5541,7 @@ function main() {
                 let code = srcText.charCodeAt(j);
                 node = node.c.get(code);
                 if (node === undefined) break; 
-                
+
                 if (node.v !== null) {
                     longestMatchLen = j - i + 1;
                     longestMatchTarget = node.v;
@@ -5471,12 +5566,12 @@ function main() {
                     isVisionTriggered = true;
                     if (longestMatchLen >= 4 && longestMatchLen > anchorLen) foundAnchor = null;
                 }
-                
+
                 if (foundAnchor) {
                     var visionIdx = i + anchorLen - 1;
                     var visionNode = rootNodes[srcText.charCodeAt(visionIdx)];
                     var visionWord = "";
-                    
+
                     var k = visionIdx + 1;
                     while (k < textLen) {
                         visionNode = visionNode ? visionNode.c.get(srcText.charCodeAt(k)) : null;
@@ -5493,7 +5588,7 @@ function main() {
                         var deepIdx = visionIdx + visionWord.length - 1;
                         var deepNode = rootNodes[srcText.charCodeAt(deepIdx)];
                         var k2 = deepIdx + 1;
-                        
+
                         while (k2 < textLen) {
                             deepNode = deepNode ? deepNode.c.get(srcText.charCodeAt(k2)) : null;
                             var deepSub = srcText.substring(deepIdx, k2 + 1);
@@ -5517,7 +5612,7 @@ function main() {
                                 backupLen--;
                             }
                             if (!foundBackup) longestMatchLen = 1;
-                            
+
                             var finalNode = rootNodes[srcText.charCodeAt(i)];
                             for (var m = 1; m < longestMatchLen; m++) {
                                 if (!finalNode) break;
@@ -5537,7 +5632,7 @@ function main() {
 
             if (longestMatchLen > 0) {
                 let finalTarget = longestMatchTarget;
-                
+
                 if (longestMatchLen === 1 && hasLogic) {
                     let hook = activeLogicArr[firstCode];
                     if (hook !== undefined) finalTarget = hook(i, srcText);
@@ -5547,11 +5642,11 @@ function main() {
                     if (i > lastMatchEnd) {
                         out.push(srcText.substring(lastMatchEnd, i));
                     }
-                    
+
                     out.push(finalTarget);
                     replaceCount++;
                     lastMatchEnd = i + longestMatchLen;
-                    
+
                     if (out.length > 10000) {
                         masterOut.push(out.join(""));
                         out = [];
@@ -5624,7 +5719,7 @@ function main() {
 
             // 🗺️ 階段一：CSV 安全掃描 + 繪製地圖
             let lines = fullText.split(/\r\n|\r|\n/);
-            
+
             let totalR = cBottomRow - cTopRow + 1;
             if (lines.length > totalR && lines[lines.length - 1] === "") {
                 lines.pop();
@@ -5655,7 +5750,7 @@ function main() {
                     }
 
                     let isRowRegular = (count >= requiredDelims);
-                    
+
                     if (currentType === null) {
                         currentType = isRowRegular;
                     } else if (currentType !== isRowRegular) {
@@ -5697,10 +5792,10 @@ function main() {
 
             try {
                 Redraw = false;
-                
+
                 for (let b = 0; b < blocks.length; b++) {
                     let block = blocks[b];
-                    
+
                     if (!block.isRegular) {
                         // 【不規則區塊】Surgical Mode
                         let pendingCells = [];
@@ -5710,15 +5805,15 @@ function main() {
                                 let progress = Math.round(((r - cTopRow) / totalR) * 99);
                                 ShowTip(getMsgProcessing(progress), 1);
                             }
-                            
+
                             for (let c = cTopCol; c <= cBottomCol; c++) {
                                 let cellText = "";
                                 try { cellText = document.GetCell(r, c, 0); } catch(e) { continue; }
-                                
+
                                 if (cellText) {
                                     if (cellText.length > 25000000) {
                                         status = "";
-                                        alert(_L("⚠️ Selection contains a giant cell.", "⚠️ 選取範圍包含超過 50MB 的巨型儲存格，停止轉換。", "⚠️ 选取范围包含超过 50MB 的巨型单元格，停止转换。"));
+                                        alert(_L("⚠️ Selection contains a giant cell. Conversion aborted.", "⚠️ 選取範圍包含超過 50MB 的巨型儲存格，已中止轉換作業。", "⚠️ 选取范围包含超过 50MB 的巨型单元格，已中止转换程序。"));
                                         Quit();
                                     }
                                     let res = doConvert(cellText);
@@ -5743,13 +5838,13 @@ function main() {
                             document.selection.SetAnchorPoint(eePosCell, cTopCol, block.topRow);
                             document.selection.SetActivePoint(eePosCell, cBottomCol, block.bottomRow, true);
                             let bText = document.selection.Text;
-                            
+
                             if (bText && bText.length > 150000000) {
                                 status = "";
-                                alert(_L("⚠️ Selection contains a giant chunk (> 300MB). Conversion aborted.", "⚠️ 選取範圍包含超過 300MB 的單一巨型資料區塊，停止轉換。", "⚠️ 选取范围包含超过 300MB 的单一巨型数据区块，停止转换。"));
+                                alert(_L("⚠️ Selection contains a giant chunk (> 300MB). Conversion aborted.", "⚠️ 選取範圍包含超過 300MB 的單一巨型資料區塊，已中止轉換作業。", "⚠️ 选取范围包含超过 300MB 的单一巨型数据区块，已中止转换程序。"));
                                 Quit();
                             }
-                            
+
                             if (bText) {
 
                                 let hasTrailingNewline = /[\r\n]$/.test(bText);
@@ -5822,7 +5917,7 @@ function main() {
 
                     if (textToProcess.length > 25000000) {
                         status = "";
-                        alert(_L("⚠️ Selection contains a giant single line (> 50MB). Conversion aborted.", "⚠️ 選取範圍包含超過 50MB 的單一巨型資料行，為防止記憶體溢位，停止轉換。", "⚠️ 选取范围包含超过 50MB 的单一巨型数据行，为防止内存溢出，停止转换。"));
+                        alert(_L("⚠️ Selection contains a giant single line (> 50MB). Conversion aborted.", "⚠️ 選取範圍包含超過 50MB 的單一巨型資料行，為防止記憶體溢位，已中止轉換作業。", "⚠️ 选取范围包含超过 50MB 的单一巨型数据行，为防止内存溢出，已中止转换程序。"));
                         Quit();
                     }
 
@@ -5858,7 +5953,7 @@ function main() {
 
         } else if (isMultiSel) {
             let multiBlocks = [];
-            
+
             if (isVerticalSel && selCount === 1) {
                 let minX = Math.min(topX, bottomX);
                 let maxX = Math.max(topX, bottomX);
@@ -5893,7 +5988,7 @@ function main() {
 
                     if (srcText.length > 25000000) {
                         status = "";
-                        alert(_L("⚠️ Selection contains a giant chunk (> 50MB). Conversion aborted.", "⚠️ 選取範圍包含超過 50MB 的單一巨型資料區塊，為防止記憶體溢位，停止轉換。", "⚠️ 选取范围包含超过 50MB 的单一巨型数据区块，为防止内存溢出，停止转换。"));
+                        alert(_L("⚠️ Selection contains a giant chunk (> 50MB). Conversion aborted.", "⚠️ 選取範圍包含超過 50MB 的單一巨型資料區塊，為防止記憶體溢位，已中止轉換作業。", "⚠️ 选取范围包含超过 50MB 的单一巨型数据区块，为防止内存溢出，已中止转换程序。"));
                         Quit();
                     }
 
@@ -5911,61 +6006,102 @@ function main() {
 
         } else {
             const totalChunks = chunks.length;
+            // 從第一個 chunk 算出初始步長，確保不報錯且支援變速
+            let v8Step = (totalChunks > 0) ? (chunks[0].bottomY - chunks[0].topY + 1) : 1;
+
             for (let c = 0; c < totalChunks; c++) {
-                let progress = Math.round(((c + 1) / totalChunks) * 99);
-                ShowTip(getMsgProcessing(progress), 1);
-
                 let chunk = chunks[c];
-                if (chunk.isFirst) {
-                    document.selection.SetActivePoint(eePosLogical, topX, chunk.topY);
-                } else {
-                    document.selection.SetActivePoint(eePosLogical, 1, chunk.topY);
-                }
-                if (chunk.isLast) {
-                    document.selection.SetActivePoint(eePosLogical, bottomX, chunk.bottomY, true);
-                } else {
-                    document.selection.SetActivePoint(eePosLogical, 1, chunk.bottomY + 1, true);
-                }
+                let subTopY = chunk.topY;
 
-                let srcText = "";
-                try {
-                    srcText = document.selection.Text;
-                } catch (e) {
-                    status = "";
-                    alert(_L(`❌ Crash at chunk ${c + 1}.`, `❌ 第 ${c + 1} 區塊失敗。`, `❌ 第 ${c + 1} 区块失败。`));
-                    Quit();
-                }
-                if (!srcText) continue;
+                // 增加 while 以支援降檔分段
+                while (subTopY <= chunk.bottomY) {
+                    let progress = Math.round(((c + 1) / totalChunks) * 99);
+                    ShowTip(getMsgProcessing(progress), 1);
 
-                if (srcText.length > 25000000 && chunk.topY === chunk.bottomY) {
-                    status = "";
-                    alert(_L("⚠️ Selection contains a giant single line (> 50MB). Conversion aborted.", "⚠️ 選取範圍包含超過 50MB 的單一巨型資料行，為防止記憶體溢位，停止轉換。", "⚠️ 选取范围包含超过 50MB 的单一巨型数据行，为防止内存溢出，停止转换。"));
-                    Quit();
-                }
+                    // 決定本次處理的終點
+                    let subBottomY = (txtlen > 0) ? Math.min(subTopY + v8Step - 1, chunk.bottomY) : chunk.bottomY;
 
-                let res = doConvert(srcText);
-                if (res.count > 0) {
-                    try {
-                        // 判斷是否寫入
-                        if (!isSimulate) {
-                            document.selection.Text = res.text;
-                            if (chunk.isLast) {
-                                realBottomX = document.selection.GetActivePointX(eePosLogical);
-                                realBottomY = document.selection.GetActivePointY(eePosLogical);
+                    // --- 定位選取區 (維持原本 isFirst/isLast 邏輯) ---
+                    if (chunk.isFirst && subTopY === chunk.topY) {
+                        document.selection.SetActivePoint(eePosLogical, topX, subTopY);
+                    } else {
+                        document.selection.SetActivePoint(eePosLogical, 1, subTopY);
+                    }
+
+                    if (chunk.isLast && subBottomY === chunk.bottomY) {
+                        document.selection.SetActivePoint(eePosLogical, bottomX, subBottomY, true);
+                    } else {
+                        document.selection.SetActivePoint(eePosLogical, 1, subBottomY + 1, true);
+                    }
+
+                    // --- V8 變速降檔邏輯 (僅針對有 TextLength 版本) ---
+                    if (txtlen > 0) {
+                        let currentLen = document.selection.TextLength;
+                        // 🛑 降檔：若遇到大爬坡，將 v8Step 減半並重新選取
+                        while (currentLen > 80000000 && subBottomY > subTopY) {
+                            v8Step = Math.floor(v8Step / 2) || 1;
+                            subBottomY = subTopY + v8Step - 1;
+
+                            if (chunk.isLast && subBottomY === chunk.bottomY) {
+                                document.selection.SetActivePoint(eePosLogical, bottomX, subBottomY, true);
+                            } else {
+                                document.selection.SetActivePoint(eePosLogical, 1, subBottomY + 1, true);
                             }
+                            currentLen = document.selection.TextLength;
                         }
-                        totalReplaced += res.count;
+                        // 🟢 升檔：路況好就嘗試翻倍，但不超過初始塊的大小 (baseStep)
+                        let baseStep = chunks[0].bottomY - chunks[0].topY + 1;
+                        if (currentLen < 40000000 && v8Step < baseStep) {
+                            v8Step = Math.min(baseStep, v8Step * 2);
+                        }
+                    }
+
+                    let srcText = "";
+                    try {
+                        srcText = document.selection.Text;
                     } catch (e) {
                         status = "";
-                        alert(_L("Memory error.", "寫入時發生記憶體問題。", "写入时发生内存問題。"));
+                        alert(_L(`❌ Crash at chunk ${c + 1}.`, `❌ 第 ${c + 1} 區塊失敗。`, `❌ 第 ${c + 1} 区块失败。`));
                         Quit();
                     }
-                }
-                // 記憶體釋放機制
-                srcText = null;
-                if (res) {
-                    res.text = null;
-                    res = null;
+                    if (!srcText) {
+                        if (txtlen > 0) { subTopY = subBottomY + 1; continue; }
+                        else break;
+                    }
+
+                    // 🌟 50MB 單行攔截
+                    if (srcText.length > 25000000 && subTopY === subBottomY) {
+                        status = "";
+                        alert(_L("⚠️ Selection contains a giant single line (> 50MB). Conversion aborted.", "⚠️ 選取範圍包含超過 50MB 的單一巨型資料行，為防止記憶體溢位，已中止轉換作業。", "⚠️ 选取范围包含超过 50MB 的单一巨型数据行，为防止内存溢出，已中止转换程序。"));
+                        Quit();
+                    }
+
+                    let res = doConvert(srcText);
+                    if (res.count > 0) {
+                        try {
+                            if (!isSimulate) {
+                                document.selection.Text = res.text;
+                                if (chunk.isLast && subBottomY === chunk.bottomY) {
+                                    realBottomX = document.selection.GetActivePointX(eePosLogical);
+                                    realBottomY = document.selection.GetActivePointY(eePosLogical);
+                                }
+                            }
+                            totalReplaced += res.count;
+                        } catch (e) {
+                            status = "";
+                            alert(_L("Memory error.", "寫入時發生記憶體問題。", "写入时发生内存問題。"));
+                            Quit();
+                        }
+                    }
+
+                    srcText = null; res = null;
+
+                    // 推進座標
+                    if (txtlen > 0) {
+                        subTopY = subBottomY + 1;
+                    } else {
+                        break; 
+                    }
                 }
             }
             ShowTip("", eeShowTipHide);
@@ -6002,7 +6138,7 @@ function main() {
 
     if (totalReplaced > 0) {
         status = getMsgSuccess(totalReplaced, elapsedSeconds); 
-        
+
         // 模擬模式下：啟動比對引擎輸出至 WebBar
         if (isSimulate && initialText) {
             let macroResult = "";
