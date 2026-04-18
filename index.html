@@ -212,7 +212,7 @@ const i18nDict = {
         modalHTML: `
             <p>本網頁用來模擬在 <strong>EmEditor 環境</strong>下的轉換邏輯。這是一個專為 EmEditor 打造的高效能繁簡轉換工具，核心轉換邏輯與詞庫基於強大的開源專案 OpenCC。</p>
             <div class="code-block">
-                <strong>Project:</strong> OpenCC for EmEditor v0.34<br>
+                <strong>Project:</strong> OpenCC for EmEditor v0.36<br>
                 <strong>Author:</strong> skyuns (<a href="https://github.com/skyuns/EmEditor-OpenCC-Macro" target="_blank">GitHub Repository</a>)<br>
                 <strong>Data Source:</strong> OpenCC (<a href="https://github.com/BYVoid/OpenCC" target="_blank">BYVoid/OpenCC</a>)<br>
                 <strong>License:</strong> Apache License 2.0
@@ -237,7 +237,7 @@ const i18nDict = {
         modalHTML: `
             <p>本网页用来模拟在 <strong>EmEditor 环境</strong>下的转换逻辑。这是一个专为 EmEditor 打造的高效能繁简转换工具，核心转换逻辑与词库基于强大的开源项目 OpenCC。</p>
             <div class="code-block">
-                <strong>Project:</strong> OpenCC for EmEditor v0.34<br>
+                <strong>Project:</strong> OpenCC for EmEditor v0.36<br>
                 <strong>Author:</strong> skyuns (<a href="https://github.com/skyuns/EmEditor-OpenCC-Macro" target="_blank">GitHub Repository</a>)<br>
                 <strong>Data Source:</strong> OpenCC (<a href="https://github.com/BYVoid/OpenCC" target="_blank">BYVoid/OpenCC</a>)<br>
                 <strong>License:</strong> Apache License 2.0
@@ -262,7 +262,7 @@ const i18nDict = {
         modalHTML: `
             <p>This page simulates the conversion logic within the <strong>EmEditor environment</strong>. It is a high-performance Chinese conversion tool designed for EmEditor, based on the OpenCC project.</p>
             <div class="code-block">
-                <strong>Project:</strong> OpenCC for EmEditor v0.34<br>
+                <strong>Project:</strong> OpenCC for EmEditor v0.36<br>
                 <strong>Author:</strong> skyuns (<a href="https://github.com/skyuns/EmEditor-OpenCC-Macro" target="_blank">GitHub Repository</a>)<br>
                 <strong>Data Source:</strong> OpenCC (<a href="https://github.com/BYVoid/OpenCC" target="_blank">BYVoid/OpenCC</a>)<br>
                 <strong>License:</strong> Apache License 2.0
@@ -475,6 +475,7 @@ function updateStatus(msg, isError = false) {
 class MacroQuitException extends Error { constructor() { super("MACRO_QUIT"); } }
 
 const eePosLogical = 1, eePosCell = 4, eeShowTipHide = 0;
+const eeRunFile = 2, eeMacroSyncOnly = 16;
 let Redraw = true, CombineHistory = false;
 
 Object.defineProperty(window, 'status', {
@@ -493,10 +494,17 @@ const shell = {
         if (code === 0x12) return document.getElementById('chkIgnoreTW').checked ? -1 : 0;
         return 0;
     },
-    KeepRunning: false, SendKeys: () => {}
+    KeepRunning: false, SendKeys: () => {},
+    FileExists: () => false,
+    Run: () => 0
 };
 
-const editor = { LangID: fakeLangID, ExecuteCommandByID: () => {} };
+// 🌟 新增 ExecuteMacro 的假函數，避免 TypeError
+    const editor = { 
+        LangID: fakeLangID, 
+        ExecuteCommandByID: () => {},
+        ExecuteMacro: () => {} 
+    };
 
 const mockDocument = {
     selection: {
@@ -568,18 +576,24 @@ function executeMacroCode(code, filename) {
     const macroRunner = new Function(
         'document', 'shell', 'editor', 'WebBar', 'OutputBar', 'web',
         'eePosLogical', 'eePosCell', 'eeShowTipHide', 'Redraw', 'CombineHistory',
-        'ShowTip', 'Quit', 'alert', code
+        'ShowTip', 'Quit', 'alert', 'ScriptFullName', 'clipboardData', 
+        'eeRunFile', 'eeMacroSyncOnly', 
+        code
     );
 
     const fakeShowTip = (msg) => { if (msg) updateStatus(msg); };
     const fakeQuit = () => { throw new MacroQuitException(); };
     const fakeAlert = (msg) => { alert("Message:\n" + msg); };
+    // 🌟 補上缺少的 EmEditor 環境變數
+    const mockScriptFullName = "C:\\WebMock\\" + (filename || "macro.jsee");
+    const mockClipboardData = { getData: () => "", setData: () => {}, clearData: () => {} };
 
     try {
         macroRunner(
             mockDocument, shell, editor, WebBar, OutputBar, web,
             eePosLogical, eePosCell, eeShowTipHide, Redraw, CombineHistory,
-            fakeShowTip, fakeQuit, fakeAlert
+            fakeShowTip, fakeQuit, fakeAlert, mockScriptFullName, mockClipboardData,
+            eeRunFile, eeMacroSyncOnly
         );
     } catch (error) {
         if (!(error instanceof MacroQuitException)) {
