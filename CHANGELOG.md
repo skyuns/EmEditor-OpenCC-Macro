@@ -2,6 +2,15 @@
 
 所有關於 OpenCC for EmEditor 巨集的重大變更與更新都會記錄於此文件中。
 
+## [v0.36] - C# 原生並行化與外部詞典支援 2026-04-18
+* **優化：執行緒分段邏輯全量移交 C# (C# Internal Segmentation)**
+    原本由 BoostCVT.jsee (JScript) 執行的多執行緒切分邏輯。現在將大規模文字直接分塊傳遞後，由 C# 引擎在記憶體中進行原生層級的處理。由於擺脫了 JScript 處理大型字串切片（Slice）的效能瓶頸，多核心併行處理的效率再次獲得提升。
+  
+* **新增：雙引擎正式支援「外部辭典」**
+    正式實裝 `Use_ExternalDict` 全域開關，預設為關閉；當開啟後 (True)，支援詞典外部更新。BoostCVT.jsee 中介腳本與 EXE/DLL(C#) 增壓引擎更新後，都已具備讀取外部 .txt 檔案的能力，將會掃描 dictionary 資料夾下的 *.txt，讓詞典更新不再一定要編輯腳本的內建詞庫。
+  
+* **優化**：更新 OpenCC 詞庫至 2026-04-17。微調語法邏輯、視界邏輯。
+
 ## [v0.35] - 雙引擎無段自動變速系統 (Dual-Engine CVT) 2026-04-15
 
 * **新增：全線導入「自動變速」機制 (Continuously Variable Transmission)**
