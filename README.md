@@ -1,5 +1,5 @@
 # EmEditor-OpenCC-Macro
-這是一個專為 EmEditor 打造的繁簡轉換巨集，核心轉換邏輯與詞庫基於強大的開源專案 OpenCC (Open Chinese Convert)。这是一个专为 EmEditor 打造的繁简转换宏，核心转换逻辑与词库基于强大的开源项目 OpenCC (Open Chinese Convert)。
+這是一個專為 EmEditor 打造的繁簡轉換巨集，核心轉換邏輯與詞庫基於強大的開源專案 OpenCC (Open Chinese Convert)，支援結巴分詞。这是一个专为 EmEditor 打造的繁简转换宏，核心转换逻辑与词库基于强大的开源项目 OpenCC (Open Chinese Convert)，支持结巴分词。
 ---
 # OpenCC for EmEditor Macro
 
@@ -50,36 +50,37 @@
 | **S2TE.jsee** | `S2TE.ico` | **簡體 ➔ 繁體 (擴充版)**：含非官方擴充詞庫。 (未釋出)/ **简体 ➔ 繁体 (扩充版)**：含非官方扩充词库。|
 | **S2TWP.jsee** | `S2TWP.ico` | **大陸用語 ➔ 台灣用語**：維持繁體，僅校正用語。 / **大陆用语 ➔ 台湾用语**：维持繁体，仅校正用语。 |
 | **TW2SP.jsee** | `TW2SP.ico` | **台灣用語 ➔ 大陸用語**：維持繁體，僅校正用語。 / **台湾用语 ➔ 大陆用语**：维持繁体，仅校正用语。 |
-| **index.html** | 🌐 (Web) | **網頁轉換引擎**：免安裝跨平台，於瀏覽器直接模擬執行上述巨集邏輯與翻譯比對。不支援多執行緒與結巴分詞，上限約 2,500 萬個字元。 / **网页转换引擎**：免安装跨平台，于浏览器直接模拟执行上述宏逻辑与翻译对比。不支持多线程与结巴分词，上限约 2,500 万个字符。 |
+| **index.html** | 🌐 (Web) | **網頁轉換引擎**：免安裝跨平台，於瀏覽器直接模擬執行上述巨集邏輯與翻譯比對。不支援結巴分詞，上限約 2,500 萬個字元。 / **网页转换引擎**：免安装跨平台，于浏览器直接模拟执行上述宏逻辑与翻译对比。不支持结巴分词，上限约 2,500 万个字符。 |
 | **BoostCVT.exe / BoostCVT.dll** (Optional) | N/A  | **BoostCVT 增壓引擎 (Optional)**：處理超大型文本(>3,000萬字)的快速轉換核心。若無下載或編譯此檔，系統會自動執行原本的純 JS 優化邏輯，不影響原功能。 / **BoostCVT 增压引擎 (Optional)**：处理超大型文本(>3,000万字)的快速转换核心。若无下载或编译此档，系统会自动执行原本的纯 JS 优化逻辑，不影响原功能。 (**需 EmEditor v26.1+**) |
 | **BoostCVT.cs** (C#) | N/A  | **增壓引擎原始碼**：BoostCVT 的 C# 原始程式碼，內含編譯指令與專案資訊，供開發者自行編譯或功能修改。 / **增压引擎源码**：BoostCVT 的 C# 原始源代码，内含编译指令与项目信息，供开发者自行编译或功能修改。 |
-| **BoostCVT.jsee**  (Optional) | N/A | **中介加速腳本**：負責智慧分段 (Chunking) 並執行 EXE 或透過 PowerShell 呼叫 DLL 進行多執行緒增壓轉換。 / **中介加速脚本**：负责智慧分段 (Chunking) 并执行 EXE 或通过 PowerShell 调用 DLL 进行多线程增压转换。 (**需 EmEditor v26.1+**)|
+| **BoostCVT.jsee**  (Optional) | N/A | **中介加速腳本**：負責讀取外部詞典與結巴組件，以及智慧分段 (Chunking) 並執行 EXE 或透過 PowerShell 呼叫 DLL 進行多執行緒增壓轉換。 / **中介加速脚本**：负责读取外部词典与结巴组件，以及智慧分段 (Chunking) 并执行 EXE 或通过 PowerShell 调用 DLL 进行多线程增压转换。 (**需 EmEditor v26.1+**)|
 
 
-### 📂 OpenCC for EmEditor 部署目錄結構 (v0.37)
+### 📂 OpenCC for EmEditor 部署目錄結構 (v0.37+)
 
 ```text
 My Macros/ (巨集存放目錄)
-├── T2S.jsee                 <-- [主程式] 繁轉簡 (內建核心詞庫)
-├── S2T.jsee                 <-- [主程式] 簡轉繁 (內建核心詞庫)
-├── TW2SP.jsee               <-- [主程式] 用語轉換：台灣 ➔ 大陸
-├── S2TWP.jsee               <-- [主程式] 用語轉換：大陸 ➔ 台灣
-├── BoostCVT.jsee            <-- [中介] 橋接 C# 引擎 (選配，JScript 環境)
-├── BoostCVT.exe             <-- [核心] C# 增壓引擎執行檔 (選配，支援多執行緒)
-├── BoostCVT.dll             <-- [備援] C# 增壓引擎 DLL (選配，支援多執行緒，適用於部分環境限制 EXE 執行的問題)
+├── T2S.jsee               <-- [主程式] 繁轉簡 (內建核心詞庫)
+├── S2T.jsee               <-- [主程式] 簡轉繁 (內建核心詞庫)
+├── TW2SP.jsee             <-- [主程式] 用語轉換：台灣 ➔ 大陸
+├── S2TWP.jsee             <-- [主程式] 用語轉換：大陸 ➔ 台灣
+├── BoostCVT.jsee          <-- [中介] 橋接 C# 增壓引擎、外部詞典與結巴組件 (選配，JScript 環境)
+├── BoostCVT.exe           <-- [核心] C# 增壓引擎執行檔 (選配，支援多執行緒)
+├── BoostCVT.dll           <-- [備援] C# 增壓引擎 DLL (選配，支援多執行緒，適用於部分環境限制 EXE 執行的問題)
 │
-└── dictionary/              <-- 📂 [資料夾] 存放外部詞典與結巴組件
+└── dictionary/            <-- 📂 [資料夾] 存放外部詞典與結巴組件 (主要來源: github.com/BYVoid/OpenCC)
     │
-    ├── [ 結巴分詞組件 ] (啟動 v0.37 新功能必備)
-    ├── jieba.dict.utf8      <-- 結巴詞典 (使用結巴必須放置，也可使用 dict.txt.big)
-    ├── hmm_model.utf8       <-- HMM 模型 (選配：用於識別未登錄詞/人名)
-    ├── user.dict.utf8       <-- 使用者自定義分詞偏好 (選配：增加自定的分詞偏好)
+    ├── [ 結巴分詞組件 ] (啟動 v0.37+ 新功能 結巴分詞 必備) 
+    ├── dict.txt.big       <-- 結巴詞典 (使用結巴必須放置，繁簡都有，推薦使用。來源:github.com/fxsjy/jieba)
+    ├── jieba.dict.utf8    <-- 結巴詞典 (如有 dict.txt.big 就不需要，只有簡體，僅適用於 S2T 簡轉繁)
+    ├── hmm_model.utf8     <-- HMM 模型 (選配：用於識別未登錄詞/人名)
+    ├── user.dict.utf8     <-- 使用者自定義分詞偏好 (選配：增加自定的分詞偏好)
     │
     ├── [ 外部擴充詞典 ] (選配：僅當 Use_ExternalDict 開啟時載入，可用於手動更新)
-    ├── STPhrases.txt        <-- 簡轉繁外部詞組 (以日期來決定是否優先於內建資料)
-    ├── TSPhrases.txt        <-- 繁轉簡外部詞組 (以日期來決定是否優先於內建資料)
-    ├── STCharacters.txt     <-- 簡轉繁外部字典 (以日期來決定是否優先於內建資料)
-    └── ....txt              <-- 其他自定義外部擴充詞典
+    ├── STPhrases.txt      <-- 簡轉繁外部詞組 (以日期來決定是否優先於內建資料)
+    ├── TSPhrases.txt      <-- 繁轉簡外部詞組 (以日期來決定是否優先於內建資料)
+    ├── STCharacters.txt   <-- 簡轉繁外部字典 (以日期來決定是否優先於內建資料)
+    └── ....txt            <-- 其他自定義外部擴充詞典
 ```
 
 ### ⌨️ 鍵盤熱鍵功能對照表
