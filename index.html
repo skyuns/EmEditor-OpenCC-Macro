@@ -19,17 +19,17 @@
         }
 
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: var(--bg-color); color: var(--text-color); margin: 0; padding: 20px; display: flex; flex-direction: column; height: 100vh; box-sizing: border-box; }
-        
+
         .header { background: var(--panel-bg); padding: 15px 20px; border-radius: var(--border-radius); box-shadow: 0 4px 15px rgba(0,0,0,0.03); margin-bottom: 15px; position: relative; }
         .main-title { margin: 0 0 15px 0; font-size: 22px; color: #2D5A54; letter-spacing: 0.5px; border-bottom: 1px solid #F0F0F0; padding-bottom: 10px; display: flex; align-items: center; gap: 8px; }
-        
+
         .toolbar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px; margin-bottom: 12px; }
         .controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-        
+
         button { padding: 9px 18px; font-size: 14px; font-weight: bold; cursor: pointer; border: 1px solid transparent; border-radius: 8px; transition: all 0.2s ease; letter-spacing: 0.5px; }
         button:hover { filter: brightness(0.96); box-shadow: 0 3px 6px rgba(0,0,0,0.08); transform: translateY(-1px); border-color: rgba(0,0,0,0.05); }
         button:active { transform: translateY(1px); box-shadow: none; }
-        
+
         .btn-local { background: var(--btn-local); color: #6A4B55; }
         .btn-s2t { background: var(--btn-s2t); color: #2D5A54; }
         .btn-t2s { background: var(--btn-t2s); color: #8A4A33; }
@@ -49,10 +49,10 @@
         .main-area { display: flex; gap: 20px; flex: 1; min-height: 0; }
         .io-box { flex: 1; display: flex; flex-direction: column; position: relative; background: var(--panel-bg); border-radius: var(--border-radius); box-shadow: 0 2px 8px rgba(0,0,0,0.02); overflow: hidden; border: 2px solid #EBEBEB; transition: border-color 0.2s; }
         .io-box:focus-within { border-color: #A2D2FF; }
-        
+
         .io-header { display: flex; justify-content: space-between; align-items: center; padding: 10px 15px; background: #F8F9FA; border-bottom: 1px solid #EBEBEB; }
         .io-title { font-size: 14px; font-weight: bold; color: #666; display: flex; align-items: center; gap: 5px; }
-        
+
         .btn-action-group { display: flex; gap: 8px; }
         .btn-mini { background: transparent; color: #666; border: 1px solid #D1D1D1; padding: 4px 10px; font-size: 12px; font-weight: bold; border-radius: 6px; display: flex; align-items: center; gap: 4px; }
         .btn-mini:hover { background: #E9ECEF; color: #333; }
@@ -65,6 +65,12 @@
         #diffViewer { overflow-y: auto; display: none; }
 
         #outputFrame { display: none; width: 100%; height: 100%; border: none; background: white; }
+
+        /* 差異高亮樣式 */
+        .diff-del { color: #BF616A; border-bottom: 2px solid #BF616A; font-weight: bold; background-color: #FBE8E8; padding-bottom: 1px; } /* 左側：變更前 */
+        /* 當左側差異區獲得焦點時，顯示編輯框 */
+        #diffViewerLeft:focus { background-color: #FFFFFF !important; box-shadow: inset 0 0 5px rgba(162, 210, 255, 0.5); }
+        .diff-ins { color: #0275d8; font-weight: bold; background-color: #E6F2FF; } /* 右側：變更後 */
 
         .status-bar { margin-top: 15px; padding: 12px 20px; background: #3B4252; color: #A3BE8C; font-weight: bold; border-radius: 8px; font-size: 14px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); letter-spacing: 0.5px; transition: opacity 0.3s ease; }
         .status-bar.error { color: #BF616A; }
@@ -120,7 +126,7 @@
 
 <div class="header">
     <h1 class="main-title" data-i18n="mainTitle">EmEditor OpenCC 繁簡轉換</h1>
-    
+
     <div class="toolbar">
         <div class="controls">
             <input type="file" id="macroLoader" accept=".jsee" style="display:none">
@@ -138,7 +144,7 @@
             </button>
         </div>
     </div>
-    
+
     <div class="options-bar">
         <label><input type="checkbox" id="chkSimulate"> <span data-i18n="chkSimulate">🔍 啟用模擬比對 (與 Google 翻譯比對)</span></label>
         <label><input type="checkbox" id="chkIgnoreTW"> <span data-i18n="chkIgnoreTW">🚫 忽略台灣字形 (僅標準繁簡)</span></label>
@@ -162,9 +168,10 @@
             </div>
         </div>
         <textarea id="inputText" data-i18n-placeholder="placeholderInput" placeholder="請在此輸入或貼上原始文字..."></textarea>
+        <div id="diffViewerLeft" contenteditable="true" oninput="syncDiffToInput(this)" style="display:none; flex:1; padding:15px; font-size:16px; font-family:Consolas, monospace; overflow-y:auto; background:#FAFAFA; line-height:1.6; outline: none;"></div>
         <div class="char-counter" id="inputCounter"></div>
     </div>
-    
+
     <div class="io-box">
         <div class="io-header">
             <span class="io-title" data-i18n="titleOutput">✨ 轉換結果</span>
@@ -189,7 +196,7 @@
 <div class="modal-overlay" id="infoModal" onclick="if(event.target === this) toggleModal(false)">
     <div class="modal-content">
         <div class="modal-header">
-            <h3>About EmEditor OpenCC 繁簡轉換</h3>
+            <h3 data-i18n="modalTitle">About EmEditor OpenCC 繁簡轉換</h3>
             <button class="modal-close" onclick="toggleModal(false)">✖</button>
         </div>
         <div class="modal-body" id="modalBody"></div>
@@ -206,18 +213,19 @@ const i18nDict = {
         btnLocal: "📂 載入本地 .jsee", btnS2T: "⚡ 簡轉繁", btnT2S: "⚡ 繁轉簡", btnS2TWP: "陸 ➔ 台", btnTW2SP: "台 ➔ 陸", btnS2TE: "簡繁擴充",
         chkSimulate: "🔍 啟用模擬比對 (與 Google 翻譯比對)", chkIgnoreTW: "🚫 忽略台灣字形 (僅標準繁簡)", chkPure: "🧹 純淨模式 (停用語法邏輯與擴充)",
         titleInput: "📝 原始文字", titleOutput: "✨ 轉換結果", btnCopy: "複製", btnClear: "清除", btnDiff: "差異", aboutBtn: "關於本工具",
+        modalTitle: "關於 EmEditor OpenCC 繁簡轉換",
         placeholderInput: "請在此輸入或貼上原始文字...", placeholderOutput: "轉換結果將顯示於此...",
         statusReady: "ℹ️ 就緒。請輸入或貼上文字並選擇轉換模式。", msgNoText: "⚠️ 沒有文字可以操作！", msgCopied: "已複製", msgCopyFail: "複製失敗，請手動複製！",
         errLoadLocal: "❌ 讀取失敗。若直接雙擊 HTML，請改用「📂 載入本地 .jsee」按鈕。", msgDiffTooLong: "文字超過 3000 字，停用差異高亮以防卡頓。",
         modalHTML: `
             <p>本網頁用來模擬在 <strong>EmEditor 環境</strong>下的轉換邏輯。這是一個專為 EmEditor 打造的高效能繁簡轉換工具，核心轉換邏輯與詞庫基於強大的開源專案 OpenCC。</p>
             <div class="code-block">
-                <strong>Project:</strong> OpenCC for EmEditor v0.36<br>
-                <strong>Author:</strong> skyuns (<a href="https://github.com/skyuns/EmEditor-OpenCC-Macro" target="_blank">GitHub Repository</a>)<br>
+                <strong>Project:</strong> OpenCC for EmEditor v0.39<br>
+                <strong>Author:</strong> skyuns (<a href="https://github.com/skyuns/EmEditor-OpenCC-Macro" target="_blank">GitHub Repository</a> / <a href="https://gitcode.com/skyuns/EmEditor-OpenCC-Macro" target="_blank">GitCode Repository</a>)<br>
                 <strong>Data Source:</strong> OpenCC (<a href="https://github.com/BYVoid/OpenCC" target="_blank">BYVoid/OpenCC</a>)<br>
                 <strong>License:</strong> Apache License 2.0
             </div>
-            <p style="margin-top: 15px; font-size: 13px; color: #888;">* 本工具基於 OpenCC 核心詞庫提供基礎繁簡轉換。請注意，轉換結果可能與官方執行版本有所出入。</p>
+            <p style="margin-top: 15px; font-size: 13px; color: #888;">* 本工具基於 OpenCC 核心詞庫提供基礎繁簡轉換。請注意，轉換結果可能與官方版本有所出入。網頁版不支援結巴分詞，因為未包含詞典。</p>
             <hr style="border: 0; border-top: 1px solid #EBEBEB; margin: 15px 0;">
             <strong>⚙️ 轉換流程：</strong>
             <ol style="margin-top: 8px; padding-left: 25px;">
@@ -231,18 +239,19 @@ const i18nDict = {
         btnLocal: "📂 载入本地 .jsee", btnS2T: "⚡ 简转繁", btnT2S: "⚡ 繁转简", btnS2TWP: "陆 ➔ 台", btnTW2SP: "台 ➔ 陆", btnS2TE: "简繁扩充",
         chkSimulate: "🔍 启用模拟比对 (与 Google 翻译比对)", chkIgnoreTW: "🚫 忽略台湾字形 (仅标准繁简)", chkPure: "🧹 纯净模式 (停用语法逻辑与扩充)",
         titleInput: "📝 原始文本", titleOutput: "✨ 转换结果", btnCopy: "复制", btnClear: "清除", btnDiff: "差异", aboutBtn: "关于本工具",
+        modalTitle: "关于 EmEditor OpenCC 繁简转换",
         placeholderInput: "请在此输入或粘贴原始文本...", placeholderOutput: "转换结果将显示于此...",
         statusReady: "ℹ️ 就绪。请输入或粘贴文本并选择转换模式。", msgNoText: "⚠️ 没有文本可以操作！", msgCopied: "已复制", msgCopyFail: "复制失败，请手动复制！",
         errLoadLocal: "❌ 读取失败。若直接双击 HTML，请改用「📂 载入本地 .jsee」按钮。", msgDiffTooLong: "文本超过 3000 字，停用差异高亮以防卡顿。",
         modalHTML: `
             <p>本网页用来模拟在 <strong>EmEditor 环境</strong>下的转换逻辑。这是一个专为 EmEditor 打造的高效能繁简转换工具，核心转换逻辑与词库基于强大的开源项目 OpenCC。</p>
             <div class="code-block">
-                <strong>Project:</strong> OpenCC for EmEditor v0.36<br>
-                <strong>Author:</strong> skyuns (<a href="https://github.com/skyuns/EmEditor-OpenCC-Macro" target="_blank">GitHub Repository</a>)<br>
+                <strong>Project:</strong> OpenCC for EmEditor v0.39<br>
+                <strong>Author:</strong> skyuns (<a href="https://github.com/skyuns/EmEditor-OpenCC-Macro" target="_blank">GitHub Repository</a> / <a href="https://gitcode.com/skyuns/EmEditor-OpenCC-Macro" target="_blank">GitCode Repository</a>)<br>
                 <strong>Data Source:</strong> OpenCC (<a href="https://github.com/BYVoid/OpenCC" target="_blank">BYVoid/OpenCC</a>)<br>
                 <strong>License:</strong> Apache License 2.0
             </div>
-            <p style="margin-top: 15px; font-size: 13px; color: #888;">* 本工具基于 OpenCC 核心词库提供基础繁简转换。请注意，转换结果可能与官方执行版本有所出入。</p>
+            <p style="margin-top: 15px; font-size: 13px; color: #888;">* 本工具基于 OpenCC 核心词库提供基础繁简转换。请注意，转换结果可能与官方版本有所出入。网页版不支持结巴分词，因为未包含词典。</p>
             <hr style="border: 0; border-top: 1px solid #EBEBEB; margin: 15px 0;">
             <strong>⚙️ 转换流程：</strong>
             <ol style="margin-top: 8px; padding-left: 25px;">
@@ -256,18 +265,19 @@ const i18nDict = {
         btnLocal: "📂 Load Local .jsee", btnS2T: "⚡ S2T", btnT2S: "⚡ T2S", btnS2TWP: "CN ➔ TW", btnTW2SP: "TW ➔ CN", btnS2TE: "S2T Expanded",
         chkSimulate: "🔍 Simulation Mode (Compare w/ Google)", chkIgnoreTW: "🚫 Ignore TW Variants", chkPure: "🧹 Pure Mode (Disable Context Logic)",
         titleInput: "📝 Original Text", titleOutput: "✨ Result", btnCopy: "Copy", btnClear: "Clear", btnDiff: "Diff", aboutBtn: "About",
+        modalTitle: "About EmEditor OpenCC Conversion",
         placeholderInput: "Type or paste your text here...", placeholderOutput: "Conversion result will appear here...",
         statusReady: "ℹ️ Ready. Paste text and select a conversion mode.", msgNoText: "⚠️ No text found!", msgCopied: "Copied", msgCopyFail: "Copy failed!",
         errLoadLocal: "❌ Load failed. Use the purple 'Load Local .jsee' button if opening HTML locally.", msgDiffTooLong: "Text > 3000 chars. Diff highlight disabled to prevent lag.",
         modalHTML: `
             <p>This page simulates the conversion logic within the <strong>EmEditor environment</strong>. It is a high-performance Chinese conversion tool designed for EmEditor, based on the OpenCC project.</p>
             <div class="code-block">
-                <strong>Project:</strong> OpenCC for EmEditor v0.36<br>
-                <strong>Author:</strong> skyuns (<a href="https://github.com/skyuns/EmEditor-OpenCC-Macro" target="_blank">GitHub Repository</a>)<br>
+                <strong>Project:</strong> OpenCC for EmEditor v0.39<br>
+                <strong>Author:</strong> skyuns (<a href="https://github.com/skyuns/EmEditor-OpenCC-Macro" target="_blank">GitHub Repository</a> / <a href="https://gitcode.com/skyuns/EmEditor-OpenCC-Macro" target="_blank">GitCode Repository</a>)<br>
                 <strong>Data Source:</strong> OpenCC (<a href="https://github.com/BYVoid/OpenCC" target="_blank">BYVoid/OpenCC</a>)<br>
                 <strong>License:</strong> Apache License 2.0
             </div>
-            <p style="margin-top: 15px; font-size: 13px; color: #888;">* This tool provides foundational conversion based on the OpenCC core lexicon. Note that results may vary from the official implementation.</p>
+            <p style="margin-top: 15px; font-size: 13px; color: #888;">* This tool provides foundational conversion based on the OpenCC core lexicon. Note that results may vary from the official implementation. Web version does not support Jieba segmentation because the dictionary is not included.</p>
             <hr style="border: 0; border-top: 1px solid #EBEBEB; margin: 15px 0;">
             <strong>⚙️ Conversion Process:</strong>
             <ol style="margin-top: 8px; padding-left: 25px;">
@@ -326,7 +336,7 @@ document.getElementById('inputText').addEventListener('input', function() {
     const counter = document.getElementById('inputCounter');
     counter.classList.remove('visible'); 
     clearTimeout(inputCharTimeout);
-    
+
     inputCharTimeout = setTimeout(() => {
         const len = this.value.length;
         if (len > 0) {
@@ -339,13 +349,13 @@ document.getElementById('inputText').addEventListener('input', function() {
 function updateOutputCounter() {
     const counter = document.getElementById('outputCounter');
     counter.classList.remove('visible');
-    
+
     setTimeout(() => {
         const frame = document.getElementById('outputFrame');
         const diff = document.getElementById('diffViewer');
-        // 如果目前是 iframe(模擬比對) 或 diff(差異模式)，隱藏字數統計防干擾
+
         if (frame.style.display === 'block' || diff.style.display === 'block') return;
-        
+
         const len = document.getElementById('outputText').value.length;
         if (len > 0) {
             counter.innerText = len.toLocaleString();
@@ -378,11 +388,11 @@ async function copyText(elementId, btnElement) {
         const textSpan = btnElement.querySelector('.btn-mini-text');
         const originalIcon = iconSpan.innerText;
         const originalText = textSpan.innerText;
-        
+
         iconSpan.innerText = "✅";
         textSpan.innerText = T('msgCopied');
         btnElement.classList.add("copied");
-        
+
         setTimeout(() => {
             iconSpan.innerText = originalIcon;
             textSpan.innerText = originalText;
@@ -405,8 +415,17 @@ function toggleDiffMode() {
 }
 
 function generateDiffHTML(oldStr, newStr) {
-    if (oldStr === newStr) return escapeHTML(newStr);
-    if (oldStr.length > 3000 || newStr.length > 3000) return `<span style='color:#BF616A;'>⚠️ ${T('msgDiffTooLong')}</span><br><br>` + escapeHTML(newStr).replace(/\n/g, '<br>');
+    // 若完全相同，直接返回
+    if (oldStr === newStr) return { left: escapeHTML(oldStr), right: escapeHTML(newStr) };
+
+    // 超長文字防卡頓處理
+    if (oldStr.length > 3000 || newStr.length > 3000) {
+        let msg = `<span style='color:#BF616A;'>⚠️ ${T('msgDiffTooLong')}</span><br><br>`;
+        return { 
+            left: msg + escapeHTML(oldStr).replace(/\n/g, '<br>'), 
+            right: msg + escapeHTML(newStr).replace(/\n/g, '<br>') 
+        };
+    }
 
     var m = oldStr.length, n = newStr.length;
     var dp = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
@@ -416,7 +435,8 @@ function generateDiffHTML(oldStr, newStr) {
             else dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
         }
     }
-    var html = "", x = m, y = n, ops = [];
+
+    var leftHtml = "", rightHtml = "", x = m, y = n, ops = [];
     while (x > 0 || y > 0) {
         if (x > 0 && y > 0 && oldStr[x - 1] === newStr[y - 1]) {
             ops.push({ type: 'eq', text: oldStr[x - 1] }); x--; y--;
@@ -427,19 +447,33 @@ function generateDiffHTML(oldStr, newStr) {
         }
     }
     ops.reverse();
+
     for(let op of ops) {
-        if (op.type === 'eq') html += escapeHTML(op.text);
-        else if (op.type === 'ins') html += `<span style="color:#0275d8; font-weight:bold; background-color:#e6f2ff; border-radius:3px; padding:0 2px;">${escapeHTML(op.text)}</span>`;
-        else if (op.type === 'del') html += `<del style="color:#d9534f; background-color:#fbe8e8; border-radius:3px; padding:0 2px; text-decoration-thickness: 2px;">${escapeHTML(op.text)}</del>`;
+        const escaped = escapeHTML(op.text);
+        if (op.type === 'eq') {
+            leftHtml += escaped;
+            rightHtml += escaped;
+        } else if (op.type === 'ins') {
+            // 右側顯示藍色高亮，左側不顯示該新詞
+            rightHtml += `<span class="diff-ins">${escaped}</span>`;
+        } else if (op.type === 'del') {
+            // 左側顯示紅字加底線，右側不顯示該原始詞
+            leftHtml += `<span class="diff-del">${escaped}</span>`;
+        }
     }
-    return html.replace(/\n/g, '<br>');
+    return { 
+        left: leftHtml.replace(/\n/g, '<br>'), 
+        right: rightHtml.replace(/\n/g, '<br>') 
+    };
 }
 
 function escapeHTML(str) { return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
 
 function applyOutputView() {
+    const txtIn = document.getElementById('inputText');
+    const diffIn = document.getElementById('diffViewerLeft');
     const txtOut = document.getElementById('outputText');
-    const diffView = document.getElementById('diffViewer');
+    const diffOut = document.getElementById('diffViewer');
     const frame = document.getElementById('outputFrame');
     const btnCopy = document.getElementById('btnCopyRight');
     const btnDiff = document.getElementById('btnToggleDiff');
@@ -450,14 +484,34 @@ function applyOutputView() {
     btnDiff.style.display = txtOut.value ? 'flex' : 'none';
 
     if (isDiffMode && txtOut.value) {
+        // 差異模式：隱藏兩邊輸入框，顯示兩邊差異層
+        txtIn.style.display = 'none';
+        diffIn.style.display = 'block';
         txtOut.style.display = 'none';
-        diffView.style.display = 'block';
-        diffView.innerHTML = generateDiffHTML(document.getElementById('inputText').value, txtOut.value);
+        diffOut.style.display = 'block';
+
+        const result = generateDiffHTML(txtIn.value, txtOut.value);
+        diffIn.innerHTML = result.left;
+        diffOut.innerHTML = result.right;
     } else {
+        // 標準模式：顯示輸入框，隱藏差異層
+        txtIn.style.display = 'block';
+        diffIn.style.display = 'none';
         txtOut.style.display = 'block';
-        diffView.style.display = 'none';
+        diffOut.style.display = 'none';
     }
     updateOutputCounter();
+}
+
+// 將左側編輯過的內容同步回原始文字方塊
+function syncDiffToInput(el) {
+    // 使用 innerText 取得純文字（會自動忽略 HTML 標籤），並更新回隱藏的 textarea
+    document.getElementById('inputText').value = el.innerText;
+
+    // 同步更新字數統計
+    const counter = document.getElementById('inputCounter');
+    counter.innerText = el.innerText.length.toLocaleString();
+    counter.classList.add('visible');
 }
 
 // ==========================================
@@ -484,7 +538,7 @@ Object.defineProperty(window, 'status', {
     configurable: true
 });
 
-// 🌟 補上虛擬的 Sleep 函數，讓巨集不會因為找不到它而報錯
+// 補上虛擬的 Sleep 函數，讓巨集不會因為找不到它而報錯
 window.Sleep = function(ms) {};
 
 const shell = {
@@ -492,6 +546,7 @@ const shell = {
         if (code === 0x10) return document.getElementById('chkPure').checked ? -1 : 0;
         if (code === 0x11) return document.getElementById('chkSimulate').checked ? -1 : 0;
         if (code === 0x12) return document.getElementById('chkIgnoreTW').checked ? -1 : 0;
+        if (code === 0x14) return 0; // 忽略 Caps Lock (結巴分詞顯示)
         return 0;
     },
     KeepRunning: false, SendKeys: () => {},
@@ -499,7 +554,7 @@ const shell = {
     Run: () => 0
 };
 
-// 🌟 新增 ExecuteMacro 的假函數，避免 TypeError
+// ExecuteMacro 的假函數，避免 TypeError
     const editor = { 
         LangID: fakeLangID, 
         ExecuteCommandByID: () => {},
@@ -517,8 +572,8 @@ const mockDocument = {
         get TextLength() { return this.Text.length; },
         get IsEmpty() { return this.Text.length === 0; },
         SelectWord: () => {}, Mode: 1, Count: 1,
-        
-        // --- 最簡座標修正：賦予虛擬座標記憶能力，打破無限迴圈 ---
+
+        // 最簡座標修正：賦予虛擬座標記憶能力，打破無限迴圈
         _x: 1, _y: 1,
         GetTopPointX: function() { return this._x; },
         GetTopPointY: function() { return this._y; },
@@ -529,12 +584,16 @@ const mockDocument = {
         SetActivePoint: function(pos, x, y, extend) { this._x = x; this._y = y; },
         SetAnchorPoint: function(pos, x, y) { this._x = x; this._y = y; },
         Collapse: () => {} // 防呆
-        // --- 修正結束 ---
     },
     filters: { Count: 0 }, Csv: null, GetLine: () => "", GetCell: () => "", SetCell: () => {}
 };
 
-const WebBar = { Visible: true, SetFocus: () => {}, Open: (url) => {} };
+const WebBar = { 
+    get Visible() { return document.getElementById('chkSimulate').checked; },
+    set Visible(val) {}, 
+    SetFocus: () => {}, 
+    Open: (url) => {} 
+};
 const OutputBar = { Clear: () => {}, writeln: console.log, Visible: false };
 
 const web = {
@@ -542,18 +601,18 @@ const web = {
     document: {
         open: () => {},
         write: (html) => {
-            // 🌟 解決 IFrame 第一次顯示為空的問題 (解鎖 TrustedHTML)
+            // 解決 IFrame 第一次顯示為空的問題 (解鎖 TrustedHTML)
             let htmlStr = typeof html === 'string' ? html : html.toString();
-            
+
             document.getElementById('outputText').style.display = 'none';
             document.getElementById('diffViewer').style.display = 'none';
             document.getElementById('btnCopyRight').style.display = 'none';
             document.getElementById('btnToggleDiff').style.display = 'none';
             document.getElementById('outputCounter').classList.remove('visible');
-            
+
             const frame = document.getElementById('outputFrame');
             frame.style.display = 'block';
-            
+
             // 替換隱藏 CSS，並用 srcdoc 同步渲染
             htmlStr = htmlStr.replace('</head>', '<style>.footer-hint { display: none !important; }</style></head>');
             frame.srcdoc = htmlStr; 
@@ -568,6 +627,11 @@ const web = {
 function executeMacroCode(code, filename) {
     document.getElementById('outputFrame').style.display = 'none'; 
     code = code.replace(/^#.*/gm, function(match) { return '// ' + match; });
+    // 設定 Ctrl_Action 為模擬模式，忽略原本的 Use_Jieba 設定
+    code = code.replace(/const Ctrl_Action\s*=\s*["'].*?["'];/g, `const Ctrl_Action = "Simulator_MODE";`);
+    // 網頁版不支援外部詞典與結巴分詞核心，設定關閉以防報錯
+    code = code.replace(/const Use_Jieba\s*=\s*(true|false);/g, `const Use_Jieba = false;`);
+    code = code.replace(/const Use_ExternalDict\s*=\s*(true|false);/g, `const Use_ExternalDict = false;`);
 
     const msgRun = currentLang === 'en' ? `⏳ Parsing engine starting, executing ${filename || 'macro'}...` : 
                   (currentLang === 'zh-CN' ? `⏳ 解析引擎启动中，执行 ${filename || '宏'}...` : `⏳ 解析引擎啟動中，執行 ${filename || '巨集'}...`);
@@ -584,7 +648,7 @@ function executeMacroCode(code, filename) {
     const fakeShowTip = (msg) => { if (msg) updateStatus(msg); };
     const fakeQuit = () => { throw new MacroQuitException(); };
     const fakeAlert = (msg) => { alert("Message:\n" + msg); };
-    // 🌟 補上缺少的 EmEditor 環境變數
+    // 補上缺少的 EmEditor 環境變數
     const mockScriptFullName = "C:\\WebMock\\" + (filename || "macro.jsee");
     const mockClipboardData = { getData: () => "", setData: () => {}, clearData: () => {} };
 
@@ -623,7 +687,7 @@ async function loadAndRun(filename) {
         const head = await fetch(filename, { method: 'HEAD', cache: 'no-cache' });
         const currentETag = head.headers.get('ETag');
         const storageKey = "etag_" + filename;
-        
+
         // 2. 比對 localStorage：若 ETag 相同則讀取快取 (force-cache)，否則重新下載並更新快取 (reload)
         const useCache = currentETag && (localStorage.getItem(storageKey) === currentETag);
         const response = await fetch(filename, { cache: useCache ? 'force-cache' : 'reload' });
