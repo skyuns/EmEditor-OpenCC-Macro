@@ -1,7 +1,7 @@
 ﻿#language="JScript"
 
-// Project: OpenCC for EmEditor Macro v0.36 BoostCVT
-// Author: skyuns (https://github.com/skyuns/EmEditor-OpenCC-Macro)
+// Project: OpenCC for EmEditor Macro v0.39 BoostCVT
+// Author: skyuns (https://github.com/skyuns/EmEditor-OpenCC-Macro 備援: https://gitcode.com/skyuns/EmEditor-OpenCC-Macro)
 // Purpose: 中介加速腳本，負責執行智慧切塊並呼叫 BoostCVT 增壓引擎，以自動變速方式進行大規模文字的多執行緒高速繁簡轉換。支援 S2T/T2S 雙向模式。
 // Note: 加速組件為選配項目，僅在大規模文字且組件存在時啟動。使用者可視需求自由部署，只需 EXE 或 DLL 其中一種即可；使用時須經由 .jsee 腳本驅動，不支援獨立運作。
 
@@ -16,12 +16,14 @@ var msgModeNameTC = "繁轉簡";
 var msgModeNameSC = "繁转简";
 var msgModeNameEN = "T2S";
 
-// 讀取剪貼簿中的參數 (格式: BoostCVT_CONFIG_TOKEN|模式|主巨集路徑|模擬|語法|視界|外部詞典)
-// --- [解析詳細開關參數並傳遞給 EXE/DLL] ---
+// 讀取剪貼簿中的參數 (格式: BoostCVT_CONFIG_TOKEN|模式|主巨集路徑|模擬|語法|視界|外部詞典|Jieba開關|HMM上限)
 var mode = "T2S";
 var isCtx = "1";
 var isVis = "1";
 var isExtDict = "0";
+var isJieba = "0";
+var hmmLimit = "100";
+
 // 偵測鍵盤狀態
 var isShift = (shell.GetKeyState(0x10) < 0) ? "1" : "0";
 var isAlt   = (shell.GetKeyState(0x12) < 0) ? "1" : "0";
@@ -33,6 +35,7 @@ if (configData && configData.indexOf("BoostCVT_LOAD_DICT|") === 0) {
     var parts = configData.split("|");
     var dictMode = parts[1];
     var jseePath = parts[2];
+    var needJieba = (parts.length > 3 && parts[3] === "1");
     var dictDir = fso.BuildPath(scriptDir, "dictionary");
 
     // 1. 定義映射矩陣 (與 C# 同步)
@@ -46,10 +49,16 @@ if (configData && configData.indexOf("BoostCVT_LOAD_DICT|") === 0) {
     else if (dictMode === "S2TWP") { fPhrase = "TWPhrases.txt"; fPhraseExp = "S2TWPrawPhraseExpandedData.txt"; fVariant = ""; }
     else if (dictMode === "TW2SP") { fPhrase = "TWPhrasesRev.txt"; fPhraseExp = "TW2SPrawPhraseExpandedData.txt"; fVariant = ""; }
 
-    // 2. 檢查日期：是否有任何 TXT 比 JSEE 新？
+    // 結巴相關檔案路徑與優先級判定
+    var dictBigPath = fso.BuildPath(dictDir, "dict.txt.big");
+    var targetJiebaName = fso.FileExists(dictBigPath) ? "dict.txt.big" : "jieba.dict.utf8";
+    var userDictName = "user.dict.utf8";
+    var hmmModelName = "hmm_model.utf8";
+
+    // 2. 檢查日期：是否有任何 TXT 比 JSEE 新？ (加入結巴三劍客進行日期比對)
     var jseeDate = fso.FileExists(jseePath) ? fso.GetFile(jseePath).DateLastModified : new Date(0);
     var hasNew = false;
-    var checkList = [fPhrase, fChar, fVariant, fPhraseExp, fException];
+    var checkList = [fPhrase, fChar, fVariant, fPhraseExp, fException, targetJiebaName, userDictName, hmmModelName];
 
     for (var i = 0; i < checkList.length; i++) {
         var fName = checkList[i];
@@ -62,27 +71,51 @@ if (configData && configData.indexOf("BoostCVT_LOAD_DICT|") === 0) {
         }
     }
 
-    // 3. 若有更新，使用 ADODB.Stream 以 UTF-8 讀取外部詞典至剪貼簿
-    if (hasNew) {
-        function readTxt(name) {
+    // 讀取邏輯
+    var mustReadJieba = (needJieba && (fso.FileExists(fso.BuildPath(dictDir, "jieba.dict.utf8")) || fso.FileExists(dictBigPath)));
+    var mustReadUser = (needJieba && fso.FileExists(fso.BuildPath(dictDir, userDictName)));
+    var mustReadHmm = (needJieba && fso.FileExists(fso.BuildPath(dictDir, hmmModelName)));
+
+    // 3. 若有更新 或 必須讀取結巴
+    if (hasNew || mustReadJieba) {
+        function readTxt(name, force) {
             if (!name) return "";
             var p = fso.BuildPath(dictDir, name);
             if (!fso.FileExists(p)) return "";
-            try {
-                var stream = new ActiveXObject("ADODB.Stream");
-                stream.Type = 2; // adTypeText
-                stream.Charset = "utf-8";
-                stream.Open();
-                stream.LoadFromFile(p);
-                var txt = stream.ReadText();
-                stream.Close();
-                return txt;
-            } catch(e) { return ""; }
+
+            // 檔案比 JSEE 新 或 強制讀取時，才執行讀取
+            var isThisFileNewer = (fso.GetFile(p).DateLastModified > jseeDate);
+
+            if (isThisFileNewer || force) {
+                try {
+                    var stream = new ActiveXObject("ADODB.Stream");
+                    stream.Type = 2;
+                    stream.Charset = "utf-8";
+                    stream.Open();
+                    stream.LoadFromFile(p);
+                    var txt = stream.ReadText();
+                    stream.Close();
+                    return txt;
+                } catch(e) { return ""; }
+            }
+            
+            // 如果檔案日期不夠新，回傳空字串，讓 V8 觸發 Fallback
+            return ""; 
         }
-        var outData = [readTxt(fPhrase), readTxt(fChar), readTxt(fVariant), readTxt(fPhraseExp), readTxt(fException)];
+        // 🌟 封裝 8 個區塊
+        var outData = [
+            readTxt(fPhrase, false), 
+            readTxt(fChar, false), 
+            readTxt(fVariant, false), 
+            readTxt(fPhraseExp, false), 
+            readTxt(fException, false), 
+            // 只有 needJieba 開啟時，才允許 readTxt 去讀結巴詞典
+            (needJieba ? readTxt(targetJiebaName, mustReadJieba) : ""),
+            (needJieba ? readTxt(userDictName, mustReadUser) : ""),
+            (needJieba ? readTxt(hmmModelName, mustReadHmm) : "")
+        ];
         clipboardData.setData("Text", outData.join("|||BLOCK_SEP|||"));
     } else {
-        // 若無更新，回傳 0
         clipboardData.setData("Text", "0");
     }
     Quit(); // 🛑 任務完成，結束腳本，不啟動引擎
@@ -91,23 +124,37 @@ if (configData && configData.indexOf("BoostCVT_LOAD_DICT|") === 0) {
 // 🚜 任務 B：重裝變速箱 (大規模文字轉換邏輯)
 if (configData && configData.indexOf("BoostCVT_CONFIG_TOKEN|") === 0) {
     var parts = configData.split("|");
-    // 🌟 7 段參數：TOKEN, Mode, Path, Sim, Ctx, Vis, ExtDict
+    // 🌟 9 段參數：TOKEN, Mode, Path, Sim, Ctx, Vis, ExtDict, Jieba, HMMLimit
     if (parts.length >= 7) {
         mode = parts[1];
         oldMacroPath = parts[2];
         isCtx = (parts[4] === "true") ? "1" : "0";
         isVis = (parts[5] === "true") ? "1" : "0";
         isExtDict = (parts[6] === "true") ? "1" : "0";
+        if (parts.length >= 9) {
+            isJieba = (parts[7] === "true") ? "1" : "0";
+            hmmLimit = parts[8];
+        }
 
-        var isS2T = (mode.indexOf("S2T") !== -1);
-        msgModeNameTC = isS2T ? "簡轉繁" : "繁轉簡";
-        msgModeNameSC = isS2T ? "简转繁" : "繁转简";
-        msgModeNameEN = mode;
+        switch(mode) {
+            case "T2S":
+                msgModeNameTC = "繁轉簡"; msgModeNameSC = "繁转简"; msgModeNameEN = "T2S"; break;
+            case "S2T":
+                msgModeNameTC = "簡轉繁"; msgModeNameSC = "简转繁"; msgModeNameEN = "S2T"; break;
+            case "S2TE":
+                msgModeNameTC = "簡轉繁: 擴充版"; msgModeNameSC = "简转繁: 扩充版"; msgModeNameEN = "S2T: Expanded"; break;
+            case "S2TWP":
+                msgModeNameTC = "用語轉換: 大陸 ➔ 台灣"; msgModeNameSC = "用语转换: 大陆 ➔ 台湾"; msgModeNameEN = "Terminology: CN->TW"; break;
+            case "TW2SP":
+                msgModeNameTC = "用語轉換: 台灣 ➔ 大陸"; msgModeNameSC = "用语转换: 台湾 ➔ 大陆"; msgModeNameEN = "Terminology: TW->CN"; break;
+            default:
+                msgModeNameTC = "文字"; msgModeNameSC = "文本"; msgModeNameEN = "Text"; break;
+        }
     }
 }
 
-// 🌟 第一階段封裝成 6 段式旗標 (格式範例: "S2T|1|1|0|0|1")
-var configFlags = mode + "|" + isCtx + "|" + isVis + "|" + isShift + "|" + isAlt + "|" + isExtDict;
+// 🌟 第一階段封裝成 8 段式旗標
+var configFlags = mode + "|" + isCtx + "|" + isVis + "|" + isShift + "|" + isAlt + "|" + isExtDict + "|" + isJieba + "|" + hmmLimit;
 
 function _L(en, tc, sc) {
     var lang = editor.LangID;
@@ -126,14 +173,13 @@ function getMsgProcessing(p, threads) {
         var filledCount = Math.floor(p / 5);
         var remainder = p % 5;
         var stepIdx = Math.floor((remainder / 5) * 4);
-        bar = fullStr.substring(0, filledCount) + steps.charAt(stepIdx) + trackStr.substring(0, 19 - filledCount);
+        var bar = fullStr.substring(0, filledCount) + steps.charAt(stepIdx) + trackStr.substring(0, 19 - filledCount);
     }
     var pStr = (p < 10) ? "0" + p : p;
     var msg = (p >= 99) ? 
         _L("⏳ Integrating data, please wait...", "⏳ " + msgModeNameTC + " 資料整合中，請稍候...", "⏳ " + msgModeNameSC + " 数据整合中，请稍候...") :
         _L("⏳ Processing data, please wait...", "⏳ " + msgModeNameTC + " 資料處理中，請稍候...", "⏳ " + msgModeNameSC + " 数据处理中，请稍候...");
 
-    // 🌟 多語系訊息
     var boostInfo = _L(
         "(" + threads + " threads, BoostCVT Engine)",
         "(" + threads + " 執行緒，BoostCVT 增壓引擎)",
@@ -165,7 +211,8 @@ function main() {
     var numChunks = 1;
     if (txtlen > 0) {
         // 彈性變速
-        var divisor = (txtlen > 360000000) ? 180000000 : 60000000;
+        var divisor = (txtlen > 360000000) ? 180000000 :
+                                (txtlen > 120000000) ? 60000000 : 30000000;
         numChunks = Math.ceil(txtlen / divisor);
     } else {
         if (selectedLines <= 2000) {
@@ -179,7 +226,7 @@ function main() {
     var linesPerChunk = Math.ceil(selectedLines / numChunks);
     if (linesPerChunk < 1) linesPerChunk = 1;
 
-    // 🌟 動態偵測執行緒
+    // 動態偵測執行緒
     var envCores = shell.GetEnv("NUMBER_OF_PROCESSORS");
     var totalLogical = envCores ? parseInt(envCores, 10) : 4;
     var threadCount = Math.floor(totalLogical * 0.75);
@@ -197,13 +244,13 @@ function main() {
     try {
         var currentOrigTopY = topY;
         var lineOffset = 0; 
-        var SAFE_CHAR_LIMIT = 200000000; // 🌟 安全線：2 億字元 (約 400MB 記憶體)
+        var SAFE_CHAR_LIMIT = 200000000; // 安全線：2 億字元 (約 400MB 記憶體)
 
         // 如果總字元數小於安全極限，則不做動態收縮檢查
         var skipLengthCheck = (txtlen > 0 && txtlen <= SAFE_CHAR_LIMIT);
 
         // 3. 逐塊動態收縮與轉換 (Adaptive Line Chunking) 
-        var step = linesPerChunk; // 🌟 變速箱步進變數 (具備記憶功能)
+        var step = linesPerChunk; // 變速箱步進變數 (具備記憶功能)
 
         while (currentOrigTopY <= bottomY) {
             // 進度計算
@@ -230,7 +277,7 @@ function main() {
 
             var len = 0;
 
-            // 🌟 總字元數大於安全線時，執行長度檢測與動態降檔
+            // 總字元數大於安全線時，執行長度檢測與動態降檔
             if (!skipLengthCheck) {
                 // 索取當前選取範圍的字元長度
                 len = sel.TextLength;
@@ -262,7 +309,7 @@ function main() {
             }
 
             if (sel.TextLength === 0) {
-                // 萬一抓空，強制推進行數
+                // 萬一抓空，推進行數
                 currentOrigTopY = currentOrigBottomY + 1;
                 continue;
             }
@@ -274,7 +321,7 @@ function main() {
             // 📌 紀錄貼上前底部的 Y 座標 (用以計算精確偏移量)
             var yBeforePaste = sel.GetBottomPointY(eePosLogical);
 
-            // 🌟 第二階段封裝：加上 Threads 成為第 7 段
+            // 🌟 第二階段封裝：加上 Threads
             var dynamicFlags = configFlags + "|" + threadCount;
 
             // 宣告 runCount 來承接 C# 傳回的 Exit Code
@@ -293,9 +340,8 @@ function main() {
             }
 
             // 🛑 緊急煞車機制
-            // 如果 runCount 為 -1 (或是 32-bit/64-bit 溢位後的 4294967295)，代表引擎拒絕服務
+            // 如果 runCount 為 -1 (或是 32-bit/64-bit 溢位)，代表引擎拒絕服務
             if (runCount === -1 || runCount === 4294967295) {
-                // 隱藏進度條，避免遮擋錯誤訊息
                 ShowTip("", 0);
 
                 // 丟出 Error 物件，跳出當前的 while 迴圈，直奔 main() 最後的 catch 區塊
@@ -307,18 +353,16 @@ function main() {
             }
 
             var newText = clipboardData.getData("Text");
-            if (newText !== null) {
-                // 🌟 檢測是否夾帶了舊版的通訊標記
+            if (newText !== null && runCount > 0) { 
                 var sepIdx = newText.lastIndexOf("|||COUNT_SEP|||"); 
 
                 if (sepIdx !== -1) {
-                    var rawCount = newText.substring(sepIdx + 15); // "|||COUNT_SEP|||".length 是 15
+                    var rawCount = newText.substring(sepIdx + 15); 
                     runCount = parseInt(rawCount, 10) || 0;
                     newText = newText.substring(0, sepIdx); 
                 }
 
                 clipboardData.clearData("Text", 0);
-
                 sel.Text = newText;
                 newText = null;
 
@@ -332,8 +376,10 @@ function main() {
                     realBottomY = sel.GetActivePointY(eePosLogical);
                 } 
 
-                // 🌟 將 Exit Code (runCount) 累加進替換總數
                 if (!isNaN(runCount)) totalReplaced += runCount;
+            } else {
+                clipboardData.clearData("Text", 0);
+                newText = null;
             }
 
             // 🟢 升檔 (Upshift)：如果路況良好（資料稀疏），嘗試將步伐翻倍恢復速度
@@ -347,14 +393,14 @@ function main() {
             currentOrigTopY = currentOrigBottomY + 1;
         }
 
-        // 4. 顯示完成訊息與計數
+// 4. 顯示完成訊息與計數
         var elapsedSeconds = ((Date.now() - startTime) / 1000).toFixed(2);
         var ignoreTW = (isAlt === "1" || isShift === "1");
         var suffixTC = "", suffixSC = "", suffixEN = "";
         if (!ignoreTW) {
-            if (mode.indexOf("S2T") !== -1) {
+            if (mode === "S2T" || mode === "S2TE") {
                 suffixTC = "已套用台灣字形，"; suffixSC = "已套用台湾字形，"; suffixEN = "TW variants applied, ";
-            } else if (mode.indexOf("T2S") !== -1) {
+            } else if (mode === "T2S") {
                 suffixTC = "台灣字形已反轉，"; suffixSC = "台湾字形已反转，"; suffixEN = "TW variants reversed, ";
             }
         }
@@ -366,11 +412,23 @@ function main() {
         var visionSC = (isVis === "1" && isShift === "0") ? "视界逻辑，" : "";
         var visionEN = (isVis === "1" && isShift === "0") ? "Vision logic applied, " : "";
 
-        status = "✅ BoostCVT " + _L(
-            "Conversion completed (" + msgModeNameEN + ", " + suffixEN + logicEN + visionEN + totalReplaced + " replacements in " + elapsedSeconds + "s, " + threadCount + " threads)",
-            "轉換完成 (" + msgModeNameTC + "，" + suffixTC + logicTC + visionTC + "共取代 " + totalReplaced + " 處，耗時 " + elapsedSeconds + " 秒，" + threadCount + " 執行緒)",
-            "转换完成 (" + msgModeNameSC + "，" + suffixSC + logicSC + visionSC + "共替换 " + totalReplaced + " 处，耗时 " + elapsedSeconds + " 秒，" + threadCount + " 线程)"
-        );
+        var jiebaTC = (typeof isJieba !== "undefined" && isJieba === "1") ? "結巴分詞，" : "";
+        var jiebaSC = (typeof isJieba !== "undefined" && isJieba === "1") ? "结巴分词，" : "";
+        var jiebaEN = (typeof isJieba !== "undefined" && isJieba === "1") ? "Jieba applied, " : "";
+
+        if (totalReplaced === 0) {
+            status = _L(
+                "ℹ️ No text requiring changes was found, so no conversion was made (" + elapsedSeconds + " s).",
+                "ℹ️ 內容未包含需要變更的文字，未執行 " + msgModeNameTC + " 轉換 (耗時 " + elapsedSeconds + " 秒)",
+                "ℹ️ 内容未包含需要变更的文本，未运行 " + msgModeNameSC + " 轉換 (耗时 " + elapsedSeconds + " 秒)"
+            );
+        } else {
+            status = "✅ BoostCVT " + _L(
+                "Conversion completed (" + msgModeNameEN + ", " + suffixEN + jiebaEN + logicEN + visionEN + totalReplaced + " replacements in " + elapsedSeconds + "s, " + threadCount + " threads)",
+                "轉換完成 (" + msgModeNameTC + "，" + suffixTC + jiebaTC + logicTC + visionTC + "共取代 " + totalReplaced + " 處，耗時 " + elapsedSeconds + " 秒，" + threadCount + " 執行緒)",
+                "转换完成 (" + msgModeNameSC + "，" + suffixSC + jiebaSC + logicSC + visionSC + "共替换 " + totalReplaced + " 处，耗时 " + elapsedSeconds + " 秒，" + threadCount + " 线程)"
+            );
+        }
 
     } catch (e) {
         alert("Error: " + e.message + "\nNumber: " + (e.number & 0xFFFF));
