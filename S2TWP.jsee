@@ -4,16 +4,13 @@
 #icon="S2TWP.ico"
 
 /**
- * Project: OpenCC for EmEditor Macro v0.39
+ * Project: OpenCC for EmEditor Macro v0.40
  * Author: skyuns (https://github.com/skyuns/EmEditor-OpenCC-Macro 備援: https://gitcode.com/skyuns/EmEditor-OpenCC-Macro)
  * This macro provides foundational conversion based on the OpenCC core lexicon. Note that results may vary from the official implementation.
- * (本巨集基於 OpenCC 核心詞庫提供基礎繁簡轉換。請注意，轉換結果可能與官方執行版本有所出入。)
  * Data Source: OpenCC (https://github.com/BYVoid/OpenCC)
  * License: Apache License 2.0
  * Environment: Windows 11 + EmEditor 26.1.0 (較舊版本可能存在相容性問題)
  * 轉換流程：1. 讀取字典映射 -> 2. 封裝 Trie 字典樹 -> 3. 結巴 (Jieba) 路由計算與 Vision 視界權重 -> 4. 路由引導與 FMM 匹配
- * 簡易測試：由於內存不足，導致高清視頻的優化過程卡死，連硬盤裡的文件都無法讀取。
- * 參考結果：由於記憶體不足，導致高畫質影片的最佳化過程卡死，連硬碟裡的檔案都無法讀取。 (僅做用語轉換)
  * [Disclaimer] The simulator comparison feature is a non-official API implementation provided by Gemini for personal research; users assume all risks regarding potential IP rate-limiting. Default is disabled.
  */
 
@@ -22,14 +19,15 @@ const Simulator_MODE = false; // 模擬轉換模式 (true: 始終開啟; false: 
 const ContextLogic_MODE = false; // 語法邏輯 ContextLogic 引擎總開關 (true: 啟動; false: 關閉)
 const VisionLogic_MODE = false; // 視界邏輯 VisionLogic 引擎總開關 (true: 啟動; false: 關閉)
 const Use_ExternalDict = false; // 外部詞典 (true: 啟動; false: 關閉)：是否載入較新的外部詞典檔案 ( dictionary/*.txt )
+const PhraseExpandedData = true; // [區塊 B：自訂擴充覆寫詞庫] true: 載入擴充詞庫; false: 停用擴充詞庫
 
 // 啟用結巴分詞須於 dictionary 資料夾放置主詞典 (jieba.dict.utf8 或 dict.txt.big，推薦使用 dict.txt.big 繁簡兼收)；hmm_model.utf8 與 user.dict.utf8 為選配。
 const Use_Jieba = false; // 結巴分詞 Jieba 總開關 (true: 啟動; false: 關閉)。
 const Ctrl_Action = "Use_Jieba"; // Ctrl 鍵偵測行為設定 ("Simulator_MODE" 或 "Use_Jieba")
 const isSegmentDisplay = (shell.GetKeyState(0x14) & 1); // 結巴分詞顯示開關 (使用 Caps Lock 作為實體開關)
-const HMM_Word_limit = 100; // HMM 模型啟動上限字數
+const HMM_Word_limit = 50; // HMM 模型啟動上限字數
 
-// --- [區塊 A：大陸用語 -> 台灣用語 (TWPhrases.txt) 更新至 2026-05-05] ---
+// --- [區塊 A：大陸用語 -> 台灣用語 (TWPhrases.txt) 更新至 2026-05-20] ---
 const rawPhraseData = `
 # Open Chinese Convert (OpenCC) Dictionary
 # File: TWPhrases.txt
@@ -53,6 +51,7 @@ U盤	隨身碟
 主板	主機板
 乍得	查德
 也門	葉門
+二噁英	戴奧辛
 二極管	二極體
 互聯網	網際網路
 交互	互動
@@ -62,13 +61,18 @@ U盤	隨身碟
 仙童半導體	快捷半導體
 代碼	程式碼 代碼
 代碼頁	內碼表
-以太網	乙太網
+以太網	乙太網路 乙太網
+以太網絡	乙太網路
+以太網路	乙太網路
+以太網路由器	乙太網路路由器 乙太網路由器
 任務欄	工作列
 任務管理器	工作管理員
 仿真	模擬
 伯利茲	貝里斯
 位圖	點陣圖
 低級	低階 低級
+佐治亞	喬治亞
+佐治亞州	喬治亞州
 佛得角	維德角
 便攜式	行動式 攜帶型
 保存	儲存
@@ -158,6 +162,7 @@ U盤	隨身碟
 哈薩克斯坦	哈薩克
 哥斯達黎加	哥斯大黎加
 喫茶小舖	喫茶小舖
+喬治亞	喬治亞
 單片機	微控制器
 回調	回撥
 固件	韌體
@@ -348,9 +353,11 @@ U盤	隨身碟
 格林納達	格瑞那達
 格里格	葛利格
 格魯吉亞	喬治亞
+格魯吉亞共和國	喬治亞共和國
 桌面型	桌上型
 梅西安	梅湘
 概率	機率
+榴蓮	榴槤
 構造函數	建構函式
 構造器	建構子
 標識符	識別符號
@@ -390,6 +397,7 @@ U盤	隨身碟
 滾動條	捲軸
 演示文稿	簡報
 演算法	演算法
+漢坦病毒	漢他病毒
 潘德列茨基	潘德列茲基
 激光	雷射
 激活	啟用
@@ -457,6 +465,7 @@ U盤	隨身碟
 粘貼	貼上 粘貼
 紅心大戰	傷心小棧
 納米	奈米
+納米比亞	納米比亞
 純喫茶	純喫茶
 索馬里	索馬利亞
 組件	元件
@@ -504,7 +513,6 @@ U盤	隨身碟
 萬維網	全球資訊網
 萬象	永珍
 蒂佩特	提佩特
-薩列裡	薩列里
 薩拉薩蒂	薩拉沙泰
 薩蒂	薩提
 藍屏	藍色畫面
@@ -538,6 +546,7 @@ U盤	隨身碟
 調度	排程
 調用	呼叫
 調色板	調色盤
+調色盤	調色盤
 調製	調變
 調製解調器	數據機
 調試	除錯 偵錯
@@ -643,8 +652,8 @@ U盤	隨身碟
 // --- [區塊 B：自訂擴充覆寫詞庫] ---
 const rawPhraseExpandedData = `
 # ⚠️優先覆寫區 (Override)
-# 說明：賦予此區塊較高優先權，會直接覆寫並取代官方字典的預設轉換結果。
-# 特性：悉依個人語感與使用情境進行修改與調整，可依需求自行編輯取捨。(按住 Shift 可停用)
+# 說明：賦予此區塊較高優先權，會直接覆寫並取代官方詞典的預設轉換結果。
+# 特性：悉依個人語感與使用情境進行修改與調整，可依需求自行編輯取捨。(按住 Shift 可停用，或設定 PhraseExpandedData = false; 停用)
 
 銀行內存	銀行內存
 `;
@@ -1032,9 +1041,9 @@ async function compareWithGoogle(origText, macroText, modeNames) {
 // --- [##核心邏輯區##] ---
 function main() {
     // 0. 偵測模式 與 控制鍵狀態
-    const isShiftPressed = (shell.GetKeyState(0x10) < 0); // 按住 Shift : 僅使用標準詞組與單字，忽略 [視界邏輯]、[語法邏輯]、[區塊 B：自訂擴充覆寫詞庫]、[區塊 D：台灣字形修正 (TWVariants.txt)]、[區塊 E：台灣字形修正例外清單]
+    const isShiftPressed = (shell.GetKeyState(0x10) < 0); // 按住 Shift : 僅使用標準詞組與單字，忽略 [視界邏輯]、[語法邏輯]、[區塊 B：自訂擴充覆寫詞庫]、[區塊 D：台灣字形修正]、[區塊 E：台灣字形修正例外清單]
     const isCtrlPressed = (shell.GetKeyState(0x11) < 0); // 按住 Ctrl : 觸發 Ctrl_Action 設定的功能
-    const isAltPressed = (shell.GetKeyState(0x12) < 0); // 按住 Alt : 忽略 [區塊 D：台灣字形修正 (TWVariants.txt)]
+    const isAltPressed = (shell.GetKeyState(0x12) < 0); // 按住 Alt : 忽略 [區塊 D：台灣字形修正]
 
     let isSimulate = (typeof Simulator_MODE !== "undefined" && Simulator_MODE === true);
     let isJiebaActive = (typeof Use_Jieba !== "undefined" && Use_Jieba === true);
@@ -1334,21 +1343,20 @@ if (!isCSVCellSel && (isFilterMode || isMultiSel) && selectedLines > 60000) {
         Quit();
     }
 
-    // 分流門檻：結巴分詞選取超過 20,000,000 字、一般模式超過 50,000,000 字且非複雜模式時，交給 BoostCVT 處理 (需 EmEditor v26.1+)
-    let csharpThreshold = isJiebaActive ? 20000000 : 50000000;
+    // 分流門檻：結巴分詞選取超過 15,000,000 字、一般模式超過 30,000,000 字且非複雜模式時，交給 BoostCVT 處理 (需 EmEditor v26.1+)
+    let csharpThreshold = isJiebaActive ? 15000000 : 30000000;
     if (txtlen > csharpThreshold && txtlen < 2000000000 && !isCSVCellSel && !isMultiSel && !isVerticalSel && !isFilterMode) {
         var scriptDir = ScriptFullName.substring(0, ScriptFullName.lastIndexOf("\\") + 1);
         var fastMacro = scriptDir + "BoostCVT.jsee";
         var fastEXE   = scriptDir + "BoostCVT.exe";
         var fastDLL = scriptDir + "BoostCVT.dll";
-        // BoostCVT 加速組件為選配項目，僅在大規模文字且組件存在時啟動。使用者可視需求自由部署，只需 EXE 或 DLL 其中一種即可；使用時須經由 .jsee 腳本驅動，不支援獨立運作。
+
         if (shell.FileExists(fastMacro) && (shell.FileExists(fastEXE) || shell.FileExists(fastDLL))) {
-            status = _L("⏳ BoostCVT Engine: Converting large file ...", "⏳ BoostCVT 增壓引擎：大型檔案轉換中...", "⏳ BoostCVT 增压引擎：大文件转换中...");
 
-            // 備份原始剪貼簿
-            var userClipBackup = clipboardData.getData("Text");
+            // 備份剪貼簿
+            var userClipBackup = clipboardData.getData("Text", 0);
 
-            // 將參數封裝成字串放入剪貼簿 (格式: 標籤|模式|巨集路徑|模擬|語法|視界|外部詞典|Jieba開關|HMM上限)
+            // 將參數封裝成字串放入剪貼簿 (格式: 標籤|模式|巨集路徑|模擬|語法|視界|外部詞典|Jieba開關|HMM上限|擴充詞開關)
             var configParams = [
                 "BoostCVT_CONFIG_TOKEN",
                 CURRENT_MODE,
@@ -1358,7 +1366,8 @@ if (!isCSVCellSel && (isFilterMode || isMultiSel) && selectedLines > 60000) {
                 effectiveVisionLogic ? "true" : "false",
                 Use_ExternalDict ? "true" : "false",
                 isJiebaActive ? "true" : "false",
-                typeof HMM_Word_limit !== "undefined" ? HMM_Word_limit : 100
+                typeof HMM_Word_limit !== "undefined" ? HMM_Word_limit : 50,
+                PhraseExpandedData ? "true" : "false"
             ].join("|");
 
             clipboardData.setData("Text", configParams);
@@ -1384,7 +1393,7 @@ if (!isCSVCellSel && (isFilterMode || isMultiSel) && selectedLines > 60000) {
     if (!isCSVCellSel && !isFilterMode && !isMultiSel) {
         let numChunks = 1;
         // 根據結巴狀態，調整切分門檻
-        var chunkSize = isJiebaActive ? 24000000 : 60000000;
+        var chunkSize = isJiebaActive ? 40000000 : 60000000;
         if (txtlen > 0) {
             numChunks = Math.ceil(txtlen / chunkSize);
         } else {
@@ -1416,10 +1425,10 @@ if (!isCSVCellSel && (isFilterMode || isMultiSel) && selectedLines > 60000) {
     status = _L(
         `⏳ Building Trie Engine & Processing (${msgModeNameEN})...`, 
         `⏳ 建立字典樹引擎，${msgModeNameTC} 處理中...`, 
-        `⏳  建立字典树引擎，${msgModeNameSC} 处理中...`
+        `⏳ 建立字典树引擎，${msgModeNameSC} 处理中...`
     );
 
-// 🌟 連接外部詞典 (根據模式切換優先權：Jieba 為 C# 優先，其餘為 JS 優先)
+// 🌟 連接外部詞典 (根據模式切換：Jieba 為 C# 優先，其餘為 JS 優先)
     let currentPhraseData, currentCharData, currentTWVariants, currentExceptionData, currentPhraseExpandedData, currentJiebaData, currentUserDictData, currentHmmData;
     let dictLoadedFromExe = false;
 
@@ -1429,7 +1438,7 @@ if (!isCSVCellSel && (isFilterMode || isMultiSel) && selectedLines > 60000) {
             let fastMacro = scriptDir + "BoostCVT.jsee";
             let fastEXE = scriptDir + "BoostCVT.exe";
             let fastDLL = scriptDir + "BoostCVT.dll";
-            let backupClip = clipboardData.getData("Text");
+            let backupClip = clipboardData.getData("Text", 0);
 
             // 定義內部映射函式
             const mapDictData = (clipStr) => {
@@ -1453,7 +1462,7 @@ if (!isCSVCellSel && (isFilterMode || isMultiSel) && selectedLines > 60000) {
             if (isJiebaActive) {
                 // A. 結巴模式：C# (EXE/DLL) 優先
                 if (shell.FileExists(fastEXE) || shell.FileExists(fastDLL)) {
-                    let dictConfig = CURRENT_MODE + "|" + ScriptFullName + "|1";
+                    let dictConfig = CURRENT_MODE + "|" + ScriptFullName + "|1|" + (PhraseExpandedData ? "1" : "0"); 
                     if (shell.FileExists(fastEXE)) {
                         shell.Run("conhost.exe", 0, true, '--headless "' + fastEXE + '" LOAD_DICT "' + dictConfig + '"');
                     } else {
@@ -1464,7 +1473,7 @@ if (!isCSVCellSel && (isFilterMode || isMultiSel) && selectedLines > 60000) {
                 }
                 // 若 C# 失敗，則 JS 備援
                 if (!loadSuccess && shell.FileExists(fastMacro)) {
-                    clipboardData.setData("Text", "BoostCVT_LOAD_DICT|" + CURRENT_MODE + "|" + ScriptFullName + "|1");
+                    clipboardData.setData("Text", "BoostCVT_LOAD_DICT|" + CURRENT_MODE + "|" + ScriptFullName + "|1|" + (PhraseExpandedData ? "1" : "0"));
                     editor.ExecuteMacro(fastMacro, eeRunFile | eeMacroSyncOnly);
                     loadSuccess = (clipboardData.getData("Text") === "0") ? true : mapDictData(clipboardData.getData("Text"));
                 }
@@ -1472,7 +1481,7 @@ if (!isCSVCellSel && (isFilterMode || isMultiSel) && selectedLines > 60000) {
             else {
                 // B. 一般外部辭典：JS (BoostCVT.jsee) 優先
                 if (shell.FileExists(fastMacro)) {
-                    clipboardData.setData("Text", "BoostCVT_LOAD_DICT|" + CURRENT_MODE + "|" + ScriptFullName + "|0");
+                    clipboardData.setData("Text", "BoostCVT_LOAD_DICT|" + CURRENT_MODE + "|" + ScriptFullName + "|0|" + (PhraseExpandedData ? "1" : "0"));
                     editor.ExecuteMacro(fastMacro, eeRunFile | eeMacroSyncOnly);
                     let jsRes = clipboardData.getData("Text");
                     if (jsRes === "0") { loadSuccess = true; } 
@@ -1480,7 +1489,7 @@ if (!isCSVCellSel && (isFilterMode || isMultiSel) && selectedLines > 60000) {
                 }
                 // 若 JS 失敗，則 C# 備援
                 if (!loadSuccess && (shell.FileExists(fastEXE) || shell.FileExists(fastDLL))) {
-                    let dictConfig = CURRENT_MODE + "|" + ScriptFullName + "|0";
+                    let dictConfig = CURRENT_MODE + "|" + ScriptFullName + "|0|" + (PhraseExpandedData ? "1" : "0");
                     if (shell.FileExists(fastEXE)) {
                         shell.Run("conhost.exe", 0, true, '--headless "' + fastEXE + '" LOAD_DICT "' + dictConfig + '"');
                     } else {
@@ -1504,6 +1513,8 @@ if (!isCSVCellSel && (isFilterMode || isMultiSel) && selectedLines > 60000) {
     currentTWVariants = currentTWVariants || (typeof rawTWVariants !== "undefined" ? rawTWVariants : "");
     currentPhraseExpandedData = currentPhraseExpandedData || (typeof rawPhraseExpandedData !== "undefined" ? rawPhraseExpandedData : "");
     currentExceptionData = currentExceptionData || (typeof rawExceptionData !== "undefined" ? rawExceptionData : "");
+
+    if (typeof PhraseExpandedData !== "undefined" && !PhraseExpandedData) currentPhraseExpandedData = "";
 
     // 🌟 最終檢測：若開啟結巴功能但未讀取到詞典，則關閉旗標
     if (isJiebaActive && !currentJiebaData) isJiebaActive = false;
@@ -1657,10 +1668,14 @@ if (!isCSVCellSel && (isFilterMode || isMultiSel) && selectedLines > 60000) {
 
     // 載入 Jieba 詞典至 Trie 樹
     if (isJiebaActive && currentJiebaData) {
-        status = _L("⏳ Loading Jieba Dictionary & Processing...", "⏳ 載入結巴詞典，處理中...", "⏳ 载入结巴词典，处理中...");
+        status = _L(
+            `⏳ Trie Engine V8 Optimization & Processing (${msgModeNameEN} with Jieba)...`, 
+            `⏳ 字典樹引擎 V8 最佳化，${msgModeNameTC} 處理中 (使用結巴分詞)...`, 
+            `⏳ 字典树引擎 V8 优化，${msgModeNameSC} 处理中 (使用结巴分词)...`
+        );
         try {
             let lines = currentJiebaData.split("\n");
-            const LOG_TOTAL = Math.log(34732707); // 基準總詞頻 N=3473萬
+            const LOG_TOTAL = Math.log(34732707); // 基準總詞頻
 
             for (let i = 0; i < lines.length; i++) {
                 let line = lines[i];
@@ -1871,10 +1886,22 @@ const doConvert = (srcText) => {
              isOneToManyArr[ONE_TO_MANY_LIST.charCodeAt(k)] = 1;
          }
 
+        // 建立錨點開頭索引 (Bitset)
+        const isAnchorStartArr = new Uint8Array(65536);
+        if (typeof VisionAnchors !== 'undefined') {
+            for (let v of VisionAnchors) if (v) isAnchorStartArr[v.charCodeAt(0)] = 1;
+        }
+        if (typeof VisionVocabs !== 'undefined') {
+            for (let v of VisionVocabs) if (v) isAnchorStartArr[v.charCodeAt(0)] = 1;
+        }
+        if (typeof ContextLogicAnchors !== 'undefined') {
+            for (let v of ContextLogicAnchors) if (v) isAnchorStartArr[v.charCodeAt(0)] = 1;
+        }
+
         // 🌟 HMM Viterbi 演算法實作 (V8 邏輯)
         // 矩陣加速：利用 Float64Array 與 charCodeAt 消除物件分配
         const viterbi = (obs) => {
-            if (!isHmmLoaded || !obs || obs.length === 0) return [obs];
+            if (!isHmmLoaded || !obs || obs.length === 0) return [obs.length];
             const states = ['B', 'M', 'E', 'S']; // 內部順序: 0, 1, 2, 3
             let obsLen = obs.length;
             let V = new Array(obsLen);
@@ -1895,7 +1922,7 @@ const doConvert = (srcText) => {
                     let max_prob = -Infinity;
                     let best_state = null;
                     for (let y0 = 0; y0 < 4; y0++) {
-                        // 轉移矩陣查表：fromIdx * 4 + toIdx
+                        // 轉移矩陣查表
                         let prob = V[t-1][y0] + hmmTrans[y0 * 4 + y] + hmmEmit[y][charCode];
                         if (prob > max_prob) {
                             max_prob = prob;
@@ -1924,11 +1951,11 @@ const doConvert = (srcText) => {
             for (let i = 0; i < obsLen; i++) {
                 let p = final_path[i];
                 if (p === 'E' || p === 'S') {
-                    result.push(obs.substring(begin, i + 1));
+                    result.push(i - begin + 1);
                     begin = i + 1;
                 }
             }
-            if (begin < obsLen) result.push(obs.substring(begin));
+            if (begin < obsLen) result.push(obsLen - begin);
             return result;
         };
 
@@ -1995,8 +2022,9 @@ const doConvert = (srcText) => {
                         }
 
                         // C: 針對 Set 進行精確加扣分
+                        // 只有當第一個字可能是錨點時，才執行 Substring
                         let extraWeight = 0;
-                        if (wordLen > 1) {
+                        if (wordLen > 1 && isAnchorStartArr[srcText.charCodeAt(idx)]) {
                             // 提取當前比對的實際字串
                             let wordStr = srcText.substring(idx, j + 1);
 
@@ -2059,10 +2087,9 @@ const doConvert = (srcText) => {
                     if (endPtr - startPtr > 1) {
                         if (endPtr - startPtr <= HMM_Word_limit) {
                             let block = srcText.substring(startPtr, endPtr);
-                            let hmmWords = viterbi(block);
+                            let hmmWordLengths = viterbi(block);
                             let cur = startPtr;
-                            for (let hw of hmmWords) {
-                                let hwLen = hw.length;
+                            for (let hwLen of hmmWordLengths) {
                                 route[cur].next = cur + hwLen;
                                 cur += hwLen;
                             }
@@ -2078,55 +2105,56 @@ const doConvert = (srcText) => {
             i = 0;
             while (i < textLen) {
                 let nextIdx = route[i].next;
+                let wordLen = nextIdx - i;
 
                 // 🗡️ 真・視界邏輯 (True Vision) 介入 
-                let currentWord = srcText.substring(i, nextIdx);
+                if (typeof VisionAnchors !== "undefined" && wordLen > 1 && isAnchorStartArr[srcText.charCodeAt(i)]) {
+                    let currentWord = srcText.substring(i, nextIdx);
 
-                // 第一段拔刀：偵測到定錨點
-                if (typeof VisionAnchors !== "undefined" && currentWord.length > 1 && VisionAnchors.has(currentWord)) {
-                    let visionIdx = i + currentWord.length - 1; // 站位在交界字
-                    let visionWord = "";
+                    // 第一段拔刀：偵測到定錨點
+                    if (VisionAnchors.has(currentWord)) {
+                        let visionIdx = i + wordLen - 1; // 站位在交界字
+                        let visionWord = "";
 
-                    // 向後掃描尋找強勢詞
-                    let vk = visionIdx + 1;
-                    while (vk < textLen && (vk - visionIdx) <= 8) {
-                        let sub = srcText.substring(visionIdx, vk + 1);
-                        let isInTrie = false;
-                        let node = rootNodes[srcText.charCodeAt(visionIdx)];
-                        if (node) {
-                            let tempNode = node;
-                            for (let k = 1; k < sub.length; k++) {
-                                let code = srcText.charCodeAt(visionIdx + k);
-                                tempNode = tempNode.c ? (tempNode.c.get ? tempNode.c.get(code) : tempNode.c[code]) : null;
-                                if (!tempNode) break;
+                        // 向後掃描尋找強勢詞
+                        let vk = visionIdx + 1;
+                        let continuousNode = rootNodes[srcText.charCodeAt(visionIdx)];
+
+                        while (vk < textLen && (vk - visionIdx) <= 8) {
+                            let sub = srcText.substring(visionIdx, vk + 1);
+                            let isInTrie = false;
+
+                            if (continuousNode) {
+                                let nextCode = srcText.charCodeAt(vk);
+                                continuousNode = continuousNode.c ? (continuousNode.c.get ? continuousNode.c.get(nextCode) : continuousNode.c[nextCode]) : null;
+                                if (continuousNode && continuousNode.v !== null) isInTrie = true;
                             }
-                            if (tempNode && tempNode.v !== null) isInTrie = true;
-                        }
 
-                        if (VisionVocabs.has(sub) || VisionAnchors.has(sub) || isInTrie) {
-                            visionWord = sub; 
-                        }
-                        vk++;
-                    }
-
-                    // 第二段揮斬：穩定性檢查
-                    if (visionWord !== "" && visionWord.length > 1) {
-                        let isStable = true;
-                        let stabIdx = visionIdx + visionWord.length - 1;
-
-                        // 再次向後掃描：看有沒有更強的詞
-                        let sk = stabIdx + 1;
-                        while (sk < textLen && (sk - stabIdx) <= 8) {
-                            let stabSub = srcText.substring(stabIdx, sk + 1);
-                            if (VisionVocabs.has(stabSub)) {
-                                isStable = false; // 發現假象，收刀不砍
-                                break;
+                            if (VisionVocabs.has(sub) || VisionAnchors.has(sub) || isInTrie) {
+                                visionWord = sub; 
                             }
-                            sk++;
+                            vk++;
                         }
 
-                        if (isStable) {
-                            nextIdx = i + currentWord.length - 1;
+                        // 第二段揮斬：穩定性檢查
+                        if (visionWord !== "" && visionWord.length > 1) {
+                            let isStable = true;
+                            let stabIdx = visionIdx + visionWord.length - 1;
+
+                            // 再次向後掃描
+                            let sk = stabIdx + 1;
+                            while (sk < textLen && (sk - stabIdx) <= 8) {
+                                let stabSub = srcText.substring(stabIdx, sk + 1);
+                                if (VisionVocabs.has(stabSub)) {
+                                    isStable = false; // 發現假象，收刀不砍
+                                    break;
+                                }
+                                sk++;
+                            }
+
+                            if (isStable) {
+                                nextIdx = i + wordLen - 1;
+                            }
                         }
                     }
                 }
@@ -2175,11 +2203,11 @@ if (isSegmentDisplay) {
     out.push(srcText.substring(i, actualNextIdx) + "/");
     replaceCount++;
     lastMatchEnd = actualNextIdx;
-    i = actualNextIdx; // 更新索引至下一個字
+    i = actualNextIdx;
     continue; 
 }
 
-                let wordLen = nextIdx - i;
+                wordLen = nextIdx - i;
                 let firstCode = srcText.charCodeAt(i);
 
                 if (firstCode < fastSkipLimit) {
@@ -2282,8 +2310,25 @@ if (isSegmentDisplay) {
             while (i < textLen) {
                 let firstCode = srcText.charCodeAt(i);
 
-                if (firstCode < fastSkipLimit) { 
-                    while (i < textLen && srcText.charCodeAt(i) < fastSkipLimit) i++;
+                // 修改後的 V8 優化邏輯
+                if (firstCode < fastSkipLimit) {
+                    // 利用位元或 (OR) 運算 4 個字元
+                    while (i + 3 < textLen) {
+                        let batch = srcText.charCodeAt(i) | 
+                                    srcText.charCodeAt(i + 1) | 
+                                    srcText.charCodeAt(i + 2) | 
+                                    srcText.charCodeAt(i + 3);
+
+                        if (batch < fastSkipLimit) {
+                            i += 4;
+                        } else {
+                            break;
+                        }
+                    }
+
+                    while (i < textLen && srcText.charCodeAt(i) < fastSkipLimit) {
+                        i++;
+                    }
                     continue;
                 }
 
@@ -2318,7 +2363,7 @@ if (isSegmentDisplay) {
                     j++;
                 }
 
-                if (effectiveVisionLogic && longestMatchLen > 1) {
+                if (effectiveVisionLogic && longestMatchLen > 1 && isAnchorStartArr[srcText.charCodeAt(i)]) {
                     var anchorLen = longestMatchLen;
                     var foundAnchor = null;
                     while (anchorLen > 1) {
@@ -2886,10 +2931,8 @@ if (isSegmentDisplay) {
 
     } finally {
         try { CombineHistory = bOrgCombine; } catch(e) {} 
-        Sleep(30);
-        try { Redraw = true; } catch(e) {}
 
-        // 若為模擬模式，不執行 CSV 的介面重繪
+        // 模擬模式，不執行 CSV 的介面重繪
         if (!isSimulate && totalReplaced > 0 && !isCSVCellSel && document.Csv && document.Csv.Delimiter !== "") {
             editor.ExecuteCommandByID(3967);
             editor.ExecuteCommandByID(3967);
@@ -2897,6 +2940,8 @@ if (isSegmentDisplay) {
             shell.SendKeys( "{RIGHT}" ); 
         }
 
+        Sleep(20);
+        try { Redraw = true; } catch(e) {}
         finalDict.clear();
     }
 
@@ -2907,7 +2952,7 @@ if (isSegmentDisplay) {
     if (totalReplaced > 0) {
         status = getMsgSuccess(totalReplaced, elapsedSeconds); 
 
-        // 模擬模式：啟動比對引擎輸出至 WebBar
+        // 模擬模式：輸出至 WebBar
         if (isSimulate && initialText) {
             let macroResult = "";
             if (initialText.length <= 200) {
