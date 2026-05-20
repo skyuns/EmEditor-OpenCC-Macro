@@ -1,28 +1,34 @@
 ﻿#language="JScript"
 
-// Project: OpenCC for EmEditor Macro v0.39 BoostCVT
+// Project: OpenCC for EmEditor Macro v0.40 BoostCVT
 // Author: skyuns (https://github.com/skyuns/EmEditor-OpenCC-Macro 備援: https://gitcode.com/skyuns/EmEditor-OpenCC-Macro)
-// Purpose: 中介加速腳本，負責執行智慧切塊並呼叫 BoostCVT 增壓引擎，以自動變速方式進行大規模文字的多執行緒高速繁簡轉換。支援 S2T/T2S 雙向模式。
+// Purpose: 中介加速腳本，負責執行智慧切塊並呼叫 BoostCVT 增壓引擎，全程透過剪貼簿進行資料交換，以自動變速方式進行大規模文字的多執行緒高速繁簡轉換。
 // Note: 加速組件為選配項目，僅在大規模文字且組件存在時啟動。使用者可視需求自由部署，只需 EXE 或 DLL 其中一種即可；使用時須經由 .jsee 腳本驅動，不支援獨立運作。
+
+// [實驗性 Turbo 效能模式] true: 啟動; false: 關閉；啟用時，透過 EmEditor 內的 document.selection.Copy() 與 Paste() 指令機制，效能可提升約 20%~30%。
+var Turbo_MODE = false;
+
+// [進度顯示設定] true: 6 千萬字以上檔案使用輸出列; false: 一律使用工具提示。
+var OutputBar_Progress = false;
 
 var wsh = new ActiveXObject("WScript.Shell");
 var fso = new ActiveXObject("Scripting.FileSystemObject");
 var scriptDir = fso.GetParentFolderName(ScriptFullName);
 var exePath = fso.BuildPath(scriptDir, "BoostCVT.exe");
 var dllPath = fso.BuildPath(scriptDir, "BoostCVT.dll");
-var oldMacroPath = fso.BuildPath(scriptDir, "T2S.jsee"); // 預設路徑
+var oldMacroPath = fso.BuildPath(scriptDir, "T2S.jsee"); // 預設
 
 var msgModeNameTC = "繁轉簡";
 var msgModeNameSC = "繁转简";
 var msgModeNameEN = "T2S";
 
-// 讀取剪貼簿中的參數 (格式: BoostCVT_CONFIG_TOKEN|模式|主巨集路徑|模擬|語法|視界|外部詞典|Jieba開關|HMM上限)
+// 讀取剪貼簿的參數 (格式: BoostCVT_CONFIG_TOKEN|模式|主巨集路徑|模擬|語法|視界|外部詞典|Jieba開關|HMM上限|擴充詞開關)
 var mode = "T2S";
 var isCtx = "1";
 var isVis = "1";
 var isExtDict = "0";
 var isJieba = "0";
-var hmmLimit = "100";
+var hmmLimit = "50";
 
 // 偵測鍵盤狀態
 var isShift = (shell.GetKeyState(0x10) < 0) ? "1" : "0";
@@ -36,13 +42,14 @@ if (configData && configData.indexOf("BoostCVT_LOAD_DICT|") === 0) {
     var dictMode = parts[1];
     var jseePath = parts[2];
     var needJieba = (parts.length > 3 && parts[3] === "1");
+    var isPhraseExpEnabled = (parts.length > 4 ? parts[4] === "1" : true);
     var dictDir = fso.BuildPath(scriptDir, "dictionary");
 
     // 1. 定義映射矩陣 (與 C# 同步)
     var fPhrase = "", fChar = "", fVariant = "TWVariants.txt", fPhraseExp = "", fException = "";
     if (dictMode === "T2S") { fPhrase = "TSPhrases.txt"; fChar = "TSCharacters.txt"; fPhraseExp = "T2SrawPhraseExpandedData.txt"; fException = "T2SrawExceptionData.txt"; }
-    else if (dictMode === "S2T" || dictMode === "S2TE") { 
-        fPhrase = "STPhrases.txt"; fChar = "STCharacters.txt"; 
+    else if (dictMode === "S2T" || dictMode === "S2TE") {
+        fPhrase = "STPhrases.txt"; fChar = "STCharacters.txt";
         fPhraseExp = (dictMode === "S2TE") ? "S2TErawPhraseExpandedData.txt" : "S2TrawPhraseExpandedData.txt";
         fException = "S2TrawExceptionData.txt";
     }
@@ -55,7 +62,7 @@ if (configData && configData.indexOf("BoostCVT_LOAD_DICT|") === 0) {
     var userDictName = "user.dict.utf8";
     var hmmModelName = "hmm_model.utf8";
 
-    // 2. 檢查日期：是否有任何 TXT 比 JSEE 新？ (加入結巴三劍客進行日期比對)
+    // 2. 檢查日期
     var jseeDate = fso.FileExists(jseePath) ? fso.GetFile(jseePath).DateLastModified : new Date(0);
     var hasNew = false;
     var checkList = [fPhrase, fChar, fVariant, fPhraseExp, fException, targetJiebaName, userDictName, hmmModelName];
@@ -98,18 +105,18 @@ if (configData && configData.indexOf("BoostCVT_LOAD_DICT|") === 0) {
                     return txt;
                 } catch(e) { return ""; }
             }
-            
+
             // 如果檔案日期不夠新，回傳空字串，讓 V8 觸發 Fallback
-            return ""; 
+            return "";
         }
-        // 🌟 封裝 8 個區塊
+        // 封裝 8 個區塊
         var outData = [
-            readTxt(fPhrase, false), 
-            readTxt(fChar, false), 
-            readTxt(fVariant, false), 
-            readTxt(fPhraseExp, false), 
-            readTxt(fException, false), 
-            // 只有 needJieba 開啟時，才允許 readTxt 去讀結巴詞典
+            readTxt(fPhrase, false),
+            readTxt(fChar, false),
+            readTxt(fVariant, false),
+            (isPhraseExpEnabled ? readTxt(fPhraseExp, false) : ""),
+            readTxt(fException, false),
+            // 只有 needJieba 開啟時，才允許讀取結巴詞典
             (needJieba ? readTxt(targetJiebaName, mustReadJieba) : ""),
             (needJieba ? readTxt(userDictName, mustReadUser) : ""),
             (needJieba ? readTxt(hmmModelName, mustReadHmm) : "")
@@ -122,9 +129,10 @@ if (configData && configData.indexOf("BoostCVT_LOAD_DICT|") === 0) {
 }
 
 // 🚜 任務 B：重裝變速箱 (大規模文字轉換邏輯)
+var isPhraseExp = "1";
 if (configData && configData.indexOf("BoostCVT_CONFIG_TOKEN|") === 0) {
     var parts = configData.split("|");
-    // 🌟 9 段參數：TOKEN, Mode, Path, Sim, Ctx, Vis, ExtDict, Jieba, HMMLimit
+    // 10 段參數：TOKEN, Mode, Path, Sim, Ctx, Vis, ExtDict, Jieba, HMMLimit, PhraseExp
     if (parts.length >= 7) {
         mode = parts[1];
         oldMacroPath = parts[2];
@@ -135,6 +143,7 @@ if (configData && configData.indexOf("BoostCVT_CONFIG_TOKEN|") === 0) {
             isJieba = (parts[7] === "true") ? "1" : "0";
             hmmLimit = parts[8];
         }
+        if (parts.length >= 10 && parts[9] === "false") isPhraseExp = "0";
 
         switch(mode) {
             case "T2S":
@@ -153,7 +162,7 @@ if (configData && configData.indexOf("BoostCVT_CONFIG_TOKEN|") === 0) {
     }
 }
 
-// 🌟 第一階段封裝成 8 段式旗標
+// 第一階段封裝成 8 段式旗標
 var configFlags = mode + "|" + isCtx + "|" + isVis + "|" + isShift + "|" + isAlt + "|" + isExtDict + "|" + isJieba + "|" + hmmLimit;
 
 function _L(en, tc, sc) {
@@ -168,7 +177,7 @@ function getMsgProcessing(p, threads) {
     var fullStr  = "▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇";
     var trackStr = "▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁";
     var bar = "";
-    if (p >= 99) bar = fullStr.substring(0, 19) + "▅"; 
+    if (p >= 99) bar = fullStr.substring(0, 19) + "▅";
     else {
         var filledCount = Math.floor(p / 5);
         var remainder = p % 5;
@@ -176,7 +185,7 @@ function getMsgProcessing(p, threads) {
         var bar = fullStr.substring(0, filledCount) + steps.charAt(stepIdx) + trackStr.substring(0, 19 - filledCount);
     }
     var pStr = (p < 10) ? "0" + p : p;
-    var msg = (p >= 99) ? 
+    var msg = (p >= 99) ?
         _L("⏳ Integrating data, please wait...", "⏳ " + msgModeNameTC + " 資料整合中，請稍候...", "⏳ " + msgModeNameSC + " 数据整合中，请稍候...") :
         _L("⏳ Processing data, please wait...", "⏳ " + msgModeNameTC + " 資料處理中，請稍候...", "⏳ " + msgModeNameSC + " 数据处理中，请稍候...");
 
@@ -195,11 +204,16 @@ function main() {
         alert(_L("No text selected.", "未選取文字", "未选中文本"));
         return;
     }
+    var startTime = Date.now();
+    if (isJieba === "1") {
+        status = _L("⏳ BoostCVT Engine Converting (Jieba applied, Clipboard-Based)...", "⏳ BoostCVT 增壓引擎轉換中 (使用結巴分詞，剪貼簿方式)...", "⏳ BoostCVT 增压引擎转换中 (使用结巴分词，剪贴板方式)...");
+    } else {
+        status = _L("⏳ BoostCVT Engine Converting (Clipboard-Based)...", "⏳ BoostCVT 增壓引擎轉換中 (使用剪貼簿方式)...", "⏳ BoostCVT 增压引擎转换中 (使用剪贴板方式)...");
+    }
 
     // 1. 備份剪貼簿
     var backupClip = clipboardData.getData("Text");
 
-    var startTime = Date.now();
     var topY = sel.GetTopPointY(eePosLogical);
     var bottomY = sel.GetBottomPointY(eePosLogical);
     var topX = sel.GetTopPointX(eePosLogical);
@@ -207,12 +221,13 @@ function main() {
     var txtlen = sel.TextLength;
     var selectedLines = bottomY - topY + 1;
 
-    // 2. 切塊邏輯基準，核心變速箱 (Continuously Variable Transmission)
+    // 2. 切塊邏輯基準，核心變速箱
     var numChunks = 1;
     if (txtlen > 0) {
-        // 彈性變速
-        var divisor = (txtlen > 360000000) ? 180000000 :
-                                (txtlen > 120000000) ? 60000000 : 30000000;
+        // 彈性變速：根據字元數與 Turbo 模式自動調節單一區塊負荷量
+        var divisor = (Turbo_MODE && txtlen > 600000000) ? 357000000 : // Turbo 模式 (約 710MB)
+                      (txtlen > 360000000) ? 180600000 : // 高速檔 (約 360MB)
+                      (txtlen > 180000000) ? 90300000 : 63000000; // 中低速檔
         numChunks = Math.ceil(txtlen / divisor);
     } else {
         if (selectedLines <= 2000) {
@@ -229,34 +244,74 @@ function main() {
     // 動態偵測執行緒
     var envCores = shell.GetEnv("NUMBER_OF_PROCESSORS");
     var totalLogical = envCores ? parseInt(envCores, 10) : 4;
-    var threadCount = Math.floor(totalLogical * 0.75);
+    var threadCount = Math.floor(totalLogical - 2);
 
     if (isNaN(threadCount) || threadCount < 2) threadCount = 2;
-    if (threadCount > 12) threadCount = 12;
+    if (threadCount > 14) threadCount = 14;
 
     var totalReplaced = 0;
+
+    var originalShowClipHist = -1;
+
+    if (Turbo_MODE) {
+        // 讀取設定
+        var currentHist = editor.GetProfileInt( eeRegCommon, "", "ShowClipHist", 1 );
+
+        // 採用 EmEditor 作者提供的指令，暫時關閉 "貼上時顯示剪貼簿歷史記錄" 按鈕
+        if (currentHist !== 0) {
+            originalShowClipHist = currentHist;
+            editor.WriteProfileInt( eeRegCommon, "", "ShowClipHist", 0 );
+        }
+    }
+
+    var useOutputBar = OutputBar_Progress && txtlen > 60000000; // 6 千萬字以上才使用輸出列
+    var originalOutputBarVisible = false, originalOutputBarText = ""; 
+
+    // 判斷是否開啟輸出列
+    if (useOutputBar) {
+        try {
+            originalOutputBarVisible = OutputBar.Visible;
+            if (!originalOutputBarVisible) {
+                OutputBar.Visible = true;
+            }
+            var currentText = OutputBar.Text;
+            if (currentText) originalOutputBarText = currentText;
+            OutputBar.Clear();
+            Sleep(1);
+        } catch (e) {
+            useOutputBar = false;
+        }
+    }
+
     try { Redraw = false; } catch(e) {}
     try { var originalCombine = CombineHistory; CombineHistory = true; } catch(e) {}
+
+    // 保留換行符號 (CR/LF)
+    var cfg = document.Config;
+    var originalPreserveReturns = cfg.General.PreserveReturnsClipboard;
+    try {
+        if (cfg.General.PreserveReturnsClipboard !== true) {
+        cfg.General.PreserveReturnsClipboard = true;
+        cfg.Save();
+    }
+    } catch(e) {}
 
     var realBottomX = bottomX;
     var realBottomY = bottomY;
 
     try {
         var currentOrigTopY = topY;
-        var lineOffset = 0; 
-        var SAFE_CHAR_LIMIT = 200000000; // 安全線：2 億字元 (約 400MB 記憶體)
+        var lineOffset = 0;
+        // 根據模式設定安全線
+        var SAFE_CHAR_LIMIT = Turbo_MODE ? 360000000 : 200000000;
 
-        // 如果總字元數小於安全極限，則不做動態收縮檢查
+        // 如果字元數小於安全極限，不做動態收縮檢查
         var skipLengthCheck = (txtlen > 0 && txtlen <= SAFE_CHAR_LIMIT);
 
-        // 3. 逐塊動態收縮與轉換 (Adaptive Line Chunking) 
+        // 3. 逐塊動態收縮與轉換 (Adaptive Line Chunking)
         var step = linesPerChunk; // 變速箱步進變數 (具備記憶功能)
 
         while (currentOrigTopY <= bottomY) {
-            // 進度計算
-            var currentOrigBottomY = Math.min(currentOrigTopY + step - 1, bottomY);
-            var progress = Math.min(99, Math.round(((currentOrigBottomY - topY + 1) / selectedLines) * 99));
-
             var currentTopY = currentOrigTopY + lineOffset;
 
             // 嘗試以最大步伐 (或上一圈的記憶步伐) 往前邁進
@@ -279,11 +334,10 @@ function main() {
 
             // 總字元數大於安全線時，執行長度檢測與動態降檔
             if (!skipLengthCheck) {
-                // 索取當前選取範圍的字元長度
                 len = sel.TextLength;
 
-                // 動態收縮核心 (Adaptive Shrinking) 
-                // 🛑 降檔 (Downshift) 邏輯：如果選取範圍超過安全線，將行數砍半，直到降至安全區間內 
+                // 動態收縮核心 (Adaptive Shrinking)
+                // 🛑 降檔 (Downshift) 邏輯：如果選取範圍超過安全線，將行數砍半，直到降至安全區間內
                 while (len > SAFE_CHAR_LIMIT && currentOrigBottomY > currentOrigTopY) {
                     step = Math.floor(step / 2);
                     if (step < 1) step = 1;
@@ -296,7 +350,6 @@ function main() {
                     if (isLast) sel.SetActivePoint(eePosLogical, bottomX, currentBottomY, true);
                     else sel.SetActivePoint(eePosLogical, 1, currentBottomY + 1, true);
 
-                    // 再次探測字元長度
                     len = sel.TextLength;
                 }
 
@@ -314,24 +367,44 @@ function main() {
                 continue;
             }
 
-            clipboardData.setData("Text", sel.Text);
-            // 顯示進度
-            ShowTip(getMsgProcessing(progress, threadCount), 1);
+            // 執行複製與資料交換
+                if (Turbo_MODE) {
+                    // Turbo 模式：優先使用複製命令存入剪貼簿
+                    try {
+                        document.selection.Copy();
+                    } catch (e) {
+                        clipboardData.setData("Text", document.selection.Text);
+                    }
+                } else {
+                    // 標準模式
+                    clipboardData.setData("Text", document.selection.Text);
+                }
 
-            // 📌 紀錄貼上前底部的 Y 座標 (用以計算精確偏移量)
+            // 進度計算
+            var progress = Math.min(99, Math.round(((currentOrigBottomY - topY + 1) / selectedLines) * 99));
+            // 顯示進度
+            if (useOutputBar) {
+                // 輸出列方式
+                OutputBar.Clear();
+                OutputBar.Writeln(getMsgProcessing(progress, threadCount));
+            } else {
+                // 工具提示方式
+                ShowTip(getMsgProcessing(progress, threadCount), 1);
+            }
+
+            // 紀錄貼上前底部的 Y 座標 (用以計算精確偏移量)
             var yBeforePaste = sel.GetBottomPointY(eePosLogical);
 
-            // 🌟 第二階段封裝：加上 Threads
-            var dynamicFlags = configFlags + "|" + threadCount;
+            // 第二階段封裝：加上 Threads 與 擴充詞開關
+            var dynamicFlags = configFlags + "|" + threadCount + "|" + isPhraseExp;
 
-            // 宣告 runCount 來承接 C# 傳回的 Exit Code
             var runCount = 0;
 
             // 增壓引擎呼叫邏輯：EXE 優先，DLL 為輔
             if (fso.FileExists(exePath)) {
                 var cmd = '"' + exePath + '" "' + oldMacroPath + '" "' + dynamicFlags + '"';
                 runCount = wsh.Run(cmd, 0, true);
-            } 
+            }
             else if (fso.FileExists(dllPath)) {
                 var psCommand = "powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"" +
                     "[Reflection.Assembly]::LoadFile('" + dllPath.replace(/\\/g, "/") + "') | Out-Null; " +
@@ -340,11 +413,11 @@ function main() {
             }
 
             // 🛑 緊急煞車機制
-            // 如果 runCount 為 -1 (或是 32-bit/64-bit 溢位)，代表引擎拒絕服務
+            // 如果為 -1 或是溢位，代表引擎拒絕服務
             if (runCount === -1 || runCount === 4294967295) {
                 ShowTip("", 0);
 
-                // 丟出 Error 物件，跳出當前的 while 迴圈，直奔 main() 最後的 catch 區塊
+                // 丟出 Error 物件，跳出迴圈，直奔最後的 catch 區塊
                 throw new Error(_L(
                     "BoostCVT Engine error or version mismatch. Operation aborted.",
                     "BoostCVT 回傳錯誤或版本不符，已中止轉換作業。",
@@ -352,34 +425,52 @@ function main() {
                 ));
             }
 
-            var newText = clipboardData.getData("Text");
-            if (newText !== null && runCount > 0) { 
-                var sepIdx = newText.lastIndexOf("|||COUNT_SEP|||"); 
+            // 轉換結果處理區
+            var isUpdated = false;
 
-                if (sepIdx !== -1) {
-                    var rawCount = newText.substring(sepIdx + 15); 
-                    runCount = parseInt(rawCount, 10) || 0;
-                    newText = newText.substring(0, sepIdx); 
+            if (Turbo_MODE) {
+                if (runCount > 0) {
+                    Sleep(20);
+                    try {
+                        document.selection.Paste();
+                    } catch (e) {
+                        var fb = clipboardData.getData("Text");
+                        if (fb !== null) sel.Text = fb;
+                    }
+                    isUpdated = true;
                 }
+            } else {
+                var newText = clipboardData.getData("Text");
+                if (newText !== null && runCount > 0) {
+                    clipboardData.clearData("Text", 0);
+                    sel.Text = newText;
+                    newText = null;
+                    isUpdated = true;
+                }
+            }
 
-                clipboardData.clearData("Text", 0);
-                sel.Text = newText;
-                newText = null;
+            // Turbo 或標準模式有更新，就執行座標補償
+            if (isUpdated) {
+                    if (txtlen > 0 && txtlen < 1000000) {
+                         try { clipboardData.clearData("Text", 0); } catch(e) {}
+                    }
 
-                // 📌 計算貼上後的行數差值
+                // 計算貼上後的行數差值
                 var yAfterPaste = sel.GetActivePointY(eePosLogical);
                 lineOffset += (yAfterPaste - yBeforePaste);
 
-                // 檔案的最後一段，抓取結束座標供還原使用
+                // 檔案最後一段：紀錄結束座標
                 if (isLast) {
                     realBottomX = sel.GetActivePointX(eePosLogical);
                     realBottomY = sel.GetActivePointY(eePosLogical);
-                } 
+                }
 
                 if (!isNaN(runCount)) totalReplaced += runCount;
             } else {
-                clipboardData.clearData("Text", 0);
-                newText = null;
+                // 若無變更，僅清理剪貼簿
+                if (txtlen > 0 && txtlen < 1000000) {
+                     try { clipboardData.clearData("Text", 0); } catch(e) {}
+                }
             }
 
             // 🟢 升檔 (Upshift)：如果路況良好（資料稀疏），嘗試將步伐翻倍恢復速度
@@ -389,7 +480,7 @@ function main() {
 
             if (typeof CollectGarbage === "function") CollectGarbage();
 
-            // 推進到下一個動態區塊的起點
+            // 推進到下一個動態區塊起點
             currentOrigTopY = currentOrigBottomY + 1;
         }
 
@@ -405,7 +496,7 @@ function main() {
             }
         }
         var logicTC = (isCtx === "1" && isShift === "0") ? "已套用語法邏輯，" : "";
-        var logicSC = (isCtx === "1" && isShift === "0") ? "已套用语法逻辑，" : ""; 
+        var logicSC = (isCtx === "1" && isShift === "0") ? "已套用语法逻辑，" : "";
         var logicEN = (isCtx === "1" && isShift === "0") ? "Context logic applied, " : "";
 
         var visionTC = (isVis === "1" && isShift === "0") ? "視界邏輯，" : "";
@@ -436,7 +527,28 @@ function main() {
         document.selection.SetAnchorPoint(eePosLogical, topX, topY);
         document.selection.SetActivePoint(eePosLogical, realBottomX, realBottomY, true);
 
+        // 還原設定
+        try {
+            if (cfg.General.PreserveReturnsClipboard !== originalPreserveReturns) {
+                cfg.General.PreserveReturnsClipboard = originalPreserveReturns;
+                cfg.Save();
+            }
+        } catch(e) {}
+
         try { CombineHistory = originalCombine; } catch(e) {}
+
+        if (Turbo_MODE && originalShowClipHist !== -1) {
+            editor.WriteProfileInt( eeRegCommon, "", "ShowClipHist", originalShowClipHist );
+        }
+
+        if (useOutputBar) {
+                OutputBar.Clear();
+                if (originalOutputBarText !== "") {
+                    OutputBar.Write(originalOutputBarText);
+                }
+                OutputBar.Visible = originalOutputBarVisible;
+        }
+
         try { Redraw = true; } catch(e) {}
         ShowTip("", 0);
 
