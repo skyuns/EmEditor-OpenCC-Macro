@@ -2,6 +2,21 @@
 
 所有關於 OpenCC for EmEditor 巨集的重大變更與更新都會記錄於此文件中。
 
+## [v0.40] - Turbo 模式與零分配零雜湊優化 2026-05-20
+
+* **新增：實驗性 Turbo 效能模式與輸出列進度條 (Turbo Mode & OutputBar)**
+效能升級：新增 Turbo_MODE，改由 EmEditor 原生 Copy() / Paste() 指令與 C# 剪貼簿進行高速資料交換，傳輸效能再提升 20%~30%；並配合內建指令維持換行符號相容性。針對大檔案，進度條也新增可以選擇切換至「輸出列（OutputBar）」顯示。
+
+* **優化：零分配與零雜湊運算 —— 效能全面提升 (Zero-Allocation & Zero-Hash)**
+核心引擎重構：Trie 樹節點直接注入 Vision/Context 標記，徹底消除雜湊表（HashSet）查詢開銷；HMM Viterbi 矩陣打平成一維陣列提升快取命中率，並引入 512 字節並行陣列池；同時建立 65536 字元 ToString() 快取陣列。斬斷垃圾回收（GC）與字串衍生碎片，大檔轉換效能再度提升。
+
+* **調整：硬體算力調度與動態參數擴充 (High Priority & Dynamic Flags)**
+系統資源優化：程式啟動即將進程提升為「高優先權（High Priority）」，並開啟 `/optimize+`  編譯優化；執行緒最大上限放寬至 14（核心數 - 2）。這次也增加了更多的擴充詞庫，所以將參數封裝擴充為 10 段，納入 isPhraseExp 擴充詞典動態開關，預設為關閉；其目的是為了「架構上保留 OpenCC 的中間標準層，應用上則朝繁體慣用語優化。」
+
+* 註：本次更新後， 1GB 檔案，繁轉簡的時間，可以在 6 秒內完成。
+  <img width="1547" height="60" alt="image" src="https://github.com/user-attachments/assets/134f7ddf-933b-4ab7-af49-780649916d7d" />
+
+
 ## [v0.39] - 65536 矩陣定址與雙引擎邏輯同步 2026-05-07
 * **優化：HMM 運算加速 —— 65536 矩陣定址化 (Matrix Addressing)** HMM 運算重構：將 C# 與 JSEE 端的隱馬可夫模型機率查詢，由原本的雜湊表（Dictionary/Object）改為靜態二維陣列（C#: double[4, 65536]；JSEE: Float64Array）。此舉將 HMM 存取壓力降至 $O(1)$，大幅減少處理時的查找時間。並針對 ONE_TO_MANY_LIST 實施布林矩陣優化，消除在文字中的無效掃描。同樣在開啟結巴分詞的情況下，轉換速度比前一版本提升約 20~35%。
 
