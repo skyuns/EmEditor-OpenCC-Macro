@@ -2,6 +2,24 @@
 
 所有關於 OpenCC for EmEditor 巨集的重大變更與更新都會記錄於此文件中。
 
+## [v0.41] - 詞彙邏輯引擎與進階詞典格式 2026-06-02
+
+* **新增：PhraseLogic 詞彙語法邏輯引擎 (PhraseLogic Engine)**
+功能升級：因應 OpenCC 越來越多的候選詞，新版在語法辨識層面加入了全新的短語前後文邏輯判定（PhraseLogic），提升轉換的精準度。系統在初始化時，會預先將程式內的短語規則解析為前後文標籤（支援 `!排除詞` 或 `指定包含詞` 斷言），並透過新增的 `HasPhraseLogicStart` 快速 Bitset 進行開頭字元攔截與動態介入匹配。(與 ContextLogic 使用相同開關，預設為開啟)
+
+  * 詞彙邏輯轉換測試: **文丑**，是汉末三国时代武将 ➡️ **文醜**，是漢末三國時代武將 | **文丑**、武丑 ➡️ **文丑**、武丑。
+
+* **新增：進階詞典載入與異體字過濾 (Advanced Dictionary & Tofu-Risk Filter)**
+字形與優化：配合 OpenCC 的新機制，納入 `TWVariantsPhrases.txt` 異體字詞組例外機制，使用 `[區塊 F]`，並支援外部詞典讀取；這部分與原有 `[區塊 E]字形修正例外清單`功能類似，但由於該詞典的 Key 格式為繁體，底層特別採用雙向反查技術，融合「原字形精確反查」與「降維查表」，在維持極速轉換的同時達到相同的轉換效果。另外，針對單字表也增加了 `# @tofu-risk:` 行級高效過濾，並引入 `CharactersExt` 豆腐字擴充開關（預設為開啟）；關閉時可在不支援罕見字的環境下，避免轉出「豆腐字（無法顯示的空白方塊）」的風險。
+
+* **優化：真．零分配絕對定址與 4 步長快速跳躍 (Absolute Indexing & Fast 4-Step Skip)**
+效能飛躍：消除多執行緒環境下的 `Substring` 字串複製開銷，讓所有執行緒直接共享全域大字串，全面改用 `fullInput[start + idx]` 的絕對定址比對，提高 CPU 緩存利用率（Cache Locality）並將多核心並發吞吐量（Throughput）直接拉高。此外，針對 HMM 與輸出抽取階段，全面引入了 4 步長區塊跳躍（Bitwise OR 快速判定），使迴圈內部判斷次數減少，提升轉換效率。
+
+* **調整：配合 EmEditor 26.1.1 版本 UI 行為改變的捲動補償 (Scroll Compensation for EmEditor 26.1.1+)**
+體驗優化：因應 EmEditor 26.1.1 之後，編輯器底層 UI 與捲軸行為的改變，JSEE 腳本進行了對應的架構適應。在程式開始前會先精確紀錄橫向與縱向滾動位置（`scrollX` / `scrollY`），並在轉換完成的收尾區塊中將畫面捲回原本的視野範圍，確保大檔轉換後視覺焦點不產生錯位。通訊協定也同步擴充為 11 段旗標參數，用以動態同步前端狀態。
+<img width="1024" height="679" alt="image" src="https://github.com/user-attachments/assets/87a21329-89a9-4fcf-a326-a04f9686ee90" />
+
+
 ## [v0.40] - Turbo 模式與零分配零雜湊優化 2026-05-20
 
 * **新增：實驗性 Turbo 效能模式與輸出列進度條 (Turbo Mode & OutputBar)**
