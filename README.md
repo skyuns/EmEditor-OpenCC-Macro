@@ -65,14 +65,14 @@ My Macros/ (巨集存放目錄)
 ├── TW2SP.jsee             <-- [主程式] 用語轉換：台灣 ➔ 大陸
 ├── S2TWP.jsee             <-- [主程式] 用語轉換：大陸 ➔ 台灣
 ├── BoostCVT.jsee          <-- [中介] 橋接 C# 增壓引擎、外部詞典與結巴組件 (選配，JScript 環境)
-├── BoostCVT.exe           <-- [核心] C# 增壓引擎執行檔 (選配，支援多執行緒)
+├── BoostCVT.exe           <-- [核心] C# 增壓引擎執行檔 (選配，支援多執行緒。編譯 BoostCVT.cs 所產生的執行檔)
 ├── BoostCVT.dll           <-- [備援] C# 增壓引擎 DLL (選配，支援多執行緒，適用於部分環境限制 EXE 執行的問題)
 │
 └── dictionary/            <-- 📂 [資料夾] 存放外部詞典與結巴組件 (主要來源: github.com/BYVoid/OpenCC)
     │
     ├── [ 結巴分詞組件 ] (啟動 結巴分詞 必備) 
     ├── dict.txt.big       <-- 結巴詞典 (使用結巴必須放置，繁簡都有，推薦使用。來源: github.com/fxsjy/jieba)
-    ├── jieba.dict.utf8    <-- 結巴詞典 (如有 dict.txt.big 就不需要，只有簡體，僅適用於 S2T 簡轉繁分詞)
+    ├── jieba.dict.utf8    <-- 結巴詞典 (如有 dict.txt.big 就不需要，只有簡體，適用於 S2T 簡轉繁分詞)
     ├── hmm_model.utf8     <-- HMM 模型 (選配：用於識別未登錄詞/人名)
     ├── user.dict.utf8     <-- 使用者自定義分詞偏好 (選配：增加自定的分詞偏好)
     │
@@ -88,7 +88,7 @@ My Macros/ (巨集存放目錄)
 | 熱鍵 | 功能描述 |
 | :--- | :--- |
 | **Ctrl** | **功能自定義**：依據 Ctrl_Action 設定，可切換「結巴分詞」或啟動「模擬模式」。模擬模式不改原文，限 200 字內於 WebBar 進行比對。 |
-| **Alt** | **忽略字形**：跳過台灣常用異體字轉換 (TWVariants)。 |
+| **Alt** | **忽略字形**：跳過台灣常用異體字轉換 (TWVariants)、台灣慣用詞字形修正 (TWVariantsPhrases)。 |
 | **Shift** | **純淨模式**：僅使用標準詞組與單字，忽略視界邏輯、語法邏輯、自訂擴充、台灣字形修正及例外清單。 純淨模式測試顯示，在 190 萬行，約 900 萬處轉換的規模下，繁簡互轉 (T2S/S2T) 的產出與 OpenCC 官方結果完全相同。 |
 | **Caps Lock** | **結巴分詞顯示**：Caps Lock 開啟時，使用巨集，不進行轉換，只顯示結巴分詞的結果，例如: 令狐冲/是/云计算/行业/的/专家/。 |
 
@@ -109,8 +109,15 @@ My Macros/ (巨集存放目錄)
 | **opencc-1.3.1** | 命令行 (CLI) | 約 23 秒 | 相比之前幾個版本，1.3.1版已大幅提升轉換速度。 |
 | **OpenCC.NET.GUI** | 圖形介面批量轉換 | 3 分 50 秒 | 適合多檔案處理，單一檔案操作較繁瑣。 |
 
-註: 0.40 版開始，T2S.jsee + BoostCVT 使用 Turbo 模式，轉換 1GB 僅約 6 秒。開啟結巴分詞也只需 12秒左右。
-<img width="1547" height="60" alt="image" src="https://github.com/user-attachments/assets/134f7ddf-933b-4ab7-af49-780649916d7d" />
+註: 0.42 版，T2S.jsee + BoostCVT 使用 Turbo 模式，轉換 1GB 僅約 6 秒。
+<img width="1215" height="60" alt="image" src="https://github.com/user-attachments/assets/9f609628-ea56-459b-9677-80e782d6288f" />
+
+0.42 版，開啟結巴分詞進行繁簡轉換 1GB 的文字檔，也只需 8 秒左右。
+<img width="1295" height="60" alt="image" src="https://github.com/user-attachments/assets/27b90f77-9364-443a-bbbf-27a94240d4f3" />
+<img width="1297" height="52" alt="image" src="https://github.com/user-attachments/assets/7fa6cf26-c0cd-4824-9ca5-ef6f67633117" />
+
+
+
 
 ---
 
@@ -141,6 +148,9 @@ My Macros/ (巨集存放目錄)
 
 * **視界邏輯探測引擎 (Vision Logic) / 视界逻辑探测引擎**：
   * **歧義自動導正**：針對「一字多繁」的部分特例（如：發/髮、面/麵），引擎會啟動視界探測機制。透過 6-grid (六格) 深度探測機制與二層穩定性驗證，自動捕捉語境特徵，減少歧義問題。
+
+* **詞彙邏輯語境導正 (Phrase Logic) / 词汇逻辑语境导正**：
+  * **多維度前後文標籤判定**：新版獨立於常規詞典外，加入了全新的短語前後文邏輯判定（PhraseLogic）。系統將複雜的短語規則解析為「指定包含詞」與「排除詞」斷言（支援 !排除詞 的右/左權重過濾），在不破壞基礎分詞架構的前提下，利用自研雙向語境特徵捕捉，藉由前後各擴展 6 字的精確視野視窗，對可能產生歧義的連續字塊進行「多層次標籤比對」，導正特定詞彙或高歧義句型。
 
 * **導入多執行緒並行運算支援 (Native Multi-threading) / 引入多线程并行计算支持**:
   搭配底層 C# 核心升級支援並行化處理架構（Parallel Processing），在處理大規模文字塊時自動調度 CPU 多核心效能。透過演算法並行化，在高負載轉換場景中可提升轉換速度。
