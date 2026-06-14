@@ -138,7 +138,7 @@ My Macros/ (巨集存放目錄)
 
 本巨集旨在整合詞組轉換能力，並優化在編輯器環境下的使用穩定性：
 
-<img width="780" height="428" alt="image" src="https://github.com/user-attachments/assets/53cdbe8b-dfa4-4f7e-9479-fdbe42c075e5" />
+<img width="750" height="409" alt="image" src="https://github.com/user-attachments/assets/d269c620-5c25-499f-a2f0-7fab614aed6e" />
 
 * **結巴機率分詞與隱馬可夫模型 (Jieba & HMM) / 结巴概率分词与隐马可夫模型**：
   * **高精準語意切分**：導入結巴機率分詞架構。利用 DAG 有向無環圖建構與動態規劃 (DP) 路由算法，將傳統 FMM 匹配升級為機率路徑搜索。配合「權重控制面板」與歧義字調整機制（ONE_TO_MANY_LIST），提升複雜環境下的切分精準度。
