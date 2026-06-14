@@ -2,6 +2,30 @@
 
 所有關於 OpenCC for EmEditor 巨集的重大變更與更新都會記錄於此文件中。
 
+## [v0.42] - 引擎底層重構：異構分組檢索與零分配記憶體管理 2026-06-14
+
+* **優化：C# 引擎微型斷句隔離與並發排程 (Micro-Chunking & Concurrent Scheduling)**
+架構重構：針對處理大型文字檔時的快取瓶頸，C# 引擎從原先均分大區塊的策略，改採「微型斷句隔離」，動態尋找換行符號或英數空白進行安全切斷。此舉大幅縮小了結巴分詞的動態規劃（DP）陣列需求，有效提升 CPU L1/L2 快取命中率。同時，配合 Parallel.For<TLocal> 執行緒狀態池化（ThreadState）與 MaxDegreeOfParallelism 併發約束，在運算中重複利用緩衝陣列與 StringBuilder，避免頻繁觸發大型物件堆積（LOH）的垃圾回收（GC），並改善長短區塊造成的執行緒閒置問題。
+
+* **優化：v8 記憶體扁平化與全域零拷貝捷徑 (Memory Flattening & Zero-Copy Fast Path)**
+底層升級：在 JavaScript (v8) 單執行緒環境中，為確保等價轉換且無邊界截斷風險，維持了全文字串的連續處理。針對迴圈內易產生大量物件的問題，將物件結構打平，全面改用預先宣告的 Float64Array 與 Int32Array（型別陣列）紀錄權重與路徑，免除微型物件配置所引發的 V8 垃圾回收延遲。此外，C# 與 v8 引擎同步引入了替換檢測旗標，若偵測到純英文、程式碼或未匹配詞彙的段落，系統會直接透過字串切片（Substring）取回原字串，省去多餘的緩衝區寫入與拼接開銷。
+
+* **優化：PhraseLogic 規則樹形歸檔與指針級零分配 (Fast Phrase Rules & Introspective Scan)**
+架構重構：為減少全規則遍歷造成的 $O(R \times N)$ 效能影響，新版重構詞彙語法邏輯引擎。在加載階段引入 FastPhraseRules 結構，將規則依首字元預分類歸檔並配合位元映射攔截，使執行期匹配複雜度降至接近 $O(1)$。同時移除 string.Substring 邏輯，改用自研的滑動視窗算法，在全域大字串的特定邊界內直接進行字元陣列比對，並改以 out 參數由外層主要迴圈 Append，消除詞彙邏輯介入時產生的微型 StringBuilder 與微觀記憶體分配（Micro-Allocation）。
+
+* **優化：智慧型詞典優先權調配與一對多精確定向 (Intelligent Dictionary Priority & Directional One-to-Many)**
+效能與權重調校：針對簡繁不同文本的底層特性，加入結巴大詞典（dict.txt.big）與小詞典（jieba.dict.utf8）的智慧優先權切換，簡轉繁時優先加載小詞典以提高核心命中率與效能，並具備自動遞補判定。此外，同步將權重控制面板分離為 ONE_TO_MANY_S2T 與 ONE_TO_MANY_T2S 個別字串，依當前 mode 定向指派目標計分表，使 HMM 未登錄詞預測的路由計算更加平穩快速。
+
+* 註：本次更新後，最明顯的提升在於結巴分詞的效率。以 1GB 檔案來做繁簡轉換，在結巴分詞開啟的狀態下，可以在 8 秒左右完成。
+  簡轉繁（S2T）之所以比繁轉簡（T2S）更快一些，是因為 S2T 可以只載入 jieba.dict.utf8，約 34 萬筆詞條來進行結巴分詞即可；而 T2S 則須使用涵蓋繁體字的 dict.txt.big 才能分詞，詞條數高達 58 萬筆，資料量差距近七成，處理開銷自然更大。
+  <img width="1295" height="60" alt="image" src="https://github.com/user-attachments/assets/27b90f77-9364-443a-bbbf-27a94240d4f3" />
+  <img width="1297" height="52" alt="image" src="https://github.com/user-attachments/assets/7fa6cf26-c0cd-4824-9ca5-ef6f67633117" />
+
+
+* 各版本的執行速率參考下圖，整體呈現越新越快的趨勢。此圖由 AI 生成，格線位置未必精確。
+<img width="1267" height="665" alt="image" src="https://github.com/user-attachments/assets/06559eaf-f1d3-4152-9aa3-92addb900217" />
+
+
 ## [v0.41] - 詞彙邏輯引擎與進階詞典格式 2026-06-02
 
 * **新增：PhraseLogic 詞彙語法邏輯引擎 (PhraseLogic Engine)**
