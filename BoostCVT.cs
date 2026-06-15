@@ -1,4 +1,4 @@
-﻿// Project: OpenCC for EmEditor Macro v0.40 BoostCVT
+﻿// Project: OpenCC for EmEditor Macro v0.42 BoostCVT
 // Author: skyuns (https://github.com/skyuns/EmEditor-OpenCC-Macro 備援: https://gitcode.com/skyuns/EmEditor-OpenCC-Macro)
 // Purpose: 多執行緒高速繁簡轉換 BoostCVT 增壓引擎，專為處理 EmEditor 大規模文字設計，支援結巴分詞、語法邏輯與動態詞典載入。
 // Note: BoostCVT 加速組件為選配項目，僅在大規模文字且組件存在時啟動。使用者可視需求自由部署，只需 EXE 或 DLL 其中一種即可；使用時須經由 .jsee 腳本驅動，不支援獨立運作。
@@ -15,14 +15,15 @@ using System.Reflection;
 using Microsoft.CSharp;
 using System.CodeDom.Compiler;
 using System.Diagnostics;
+using System.Threading;
 
 [assembly: AssemblyTitle("BoostCVT Engine")]
 [assembly: AssemblyDescription("High-performance Text Converter for EmEditor")]
 [assembly: AssemblyCompany("skyuns")]
 [assembly: AssemblyProduct("BoostCVT")]
 [assembly: AssemblyCopyright("Copyright © 2026 skyuns (天匀). All rights reserved.")]
-[assembly: AssemblyVersion("0.40.8.0")]
-[assembly: AssemblyFileVersion("0.40.8.0")]
+[assembly: AssemblyVersion("0.42.0.0")]
+[assembly: AssemblyFileVersion("0.42.0.0")]
 
 namespace MyTools {
     public class TextProcessor {
@@ -32,7 +33,6 @@ namespace MyTools {
             public string OriginalKey;
             public double LogFreq = -18.0; // Jieba 分詞對數頻率
 
-            // 零分配優化
             public bool IsVisionAnchor; 
             public bool IsVisionVocab; 
             public bool IsContextAnchor;
@@ -63,9 +63,186 @@ namespace MyTools {
         static HashSet<string> VisionVocabs = new HashSet<string>();
         static HashSet<string> ContextLogicAnchors = new HashSet<string>();
 
+// PhraseLogic 邏輯
+class PhraseRule {
+    public string Key;
+    public string Target;
+
+    public List<string> LeftIncludes = new List<string>();
+    public List<string> LeftExcludes = new List<string>();
+
+    public List<string> RightIncludes = new List<string>();
+    public List<string> RightExcludes = new List<string>();
+}
+
+static Dictionary<char, List<PhraseRule>> FastPhraseRules = new Dictionary<char, List<PhraseRule>>();
+static bool[] HasPhraseLogicStart = new bool[65536];
+
+static void LoadPhraseLogic(string source) {
+    Match m = Regex.Match(source, @"const\s+PhraseLogic\s*=\s*\{(.*?)\};", RegexOptions.Singleline);
+    if (!m.Success) return;
+    var matches = Regex.Matches(m.Groups[1].Value, @"""(?<k>[^""]+)"":\s*""(?<v>[^""]+)""");
+
+    foreach (Match entry in matches) {
+        string k = entry.Groups["k"].Value;
+        string v = entry.Groups["v"].Value;
+
+        PhraseRule rule = new PhraseRule();
+        rule.Key = k;
+
+        var parts = v.Split(new char[] { '[', ']' }, StringSplitOptions.RemoveEmptyEntries);
+        var targets = parts[0].Split(' ');
+        rule.Target = targets.Length > 1 ? targets[1] : targets[0];
+
+        // 解析左權重
+        if (parts.Length > 1) {
+            foreach (var tag in parts[1].Split('|')) {
+                if (string.IsNullOrEmpty(tag)) continue;
+                if (tag[0] == '!') rule.LeftExcludes.Add(tag.Substring(1));
+                else rule.LeftIncludes.Add(tag);
+            }
+        }
+        // 解析右權重
+        if (parts.Length > 2) {
+            foreach (var tag in parts[2].Split('|')) {
+                if (string.IsNullOrEmpty(tag)) continue;
+                if (tag[0] == '!') rule.RightExcludes.Add(tag.Substring(1));
+                else rule.RightIncludes.Add(tag);
+            }
+        }
+
+        if (k.Length > 0) {
+            char firstChar = k[0];
+            HasPhraseLogicStart[firstChar] = true;
+            if (!FastPhraseRules.ContainsKey(firstChar)) {
+                FastPhraseRules[firstChar] = new List<PhraseRule>();
+            }
+            FastPhraseRules[firstChar].Add(rule);
+        }
+    }
+}
+
+static bool TryApplyPhraseLogic(int i, int start, int len, string input, ref int localReplaceCount, out string matchedTarget, out int matchLen) {
+    matchedTarget = null;
+    matchLen = 0;
+
+    char firstChar = input[start + i];
+
+    if (!HasPhraseLogicStart[firstChar]) return false;
+
+    List<PhraseRule> rules = FastPhraseRules[firstChar];
+    int absoluteIdx = start + i;
+
+    for (int rIdx = 0; rIdx < rules.Count; rIdx++) {
+        PhraseRule rule = rules[rIdx];
+        string pKey = rule.Key;
+
+        if (i + pKey.Length <= len) {
+            bool keyMatch = true;
+            for (int k = 0; k < pKey.Length; k++) {
+                if (input[absoluteIdx + k] != pKey[k]) { keyMatch = false; break; }
+            }
+            if (!keyMatch) continue;
+
+            // 定義視野邊界
+            int leftStart = Math.Max(0, absoluteIdx - 6);
+            int leftLen = absoluteIdx - leftStart;
+            int rightStart = absoluteIdx + pKey.Length;
+            int rightLen = Math.Min(start + len, rightStart + 6) - rightStart;
+
+            bool isTriggered = false;
+
+            // 向左比對
+            if (rule.LeftExcludes.Count > 0) {
+                bool hasExclude = false;
+                foreach (var tag in rule.LeftExcludes) {
+                    if (IntrospectiveContains(input, leftStart, leftLen, tag)) { hasExclude = true; break; }
+                }
+                if (hasExclude) continue;
+            }
+
+            if (rule.LeftIncludes.Count > 0) {
+                foreach (var tag in rule.LeftIncludes) {
+                    if (IntrospectiveContains(input, leftStart, leftLen, tag)) { isTriggered = true; break; }
+                }
+            }
+
+            // 向右比對
+            if (rule.RightExcludes.Count > 0) {
+                bool hasExclude = false;
+                foreach (var tag in rule.RightExcludes) {
+                    if (IntrospectiveContains(input, rightStart, rightLen, tag)) { hasExclude = true; break; }
+                }
+                if (hasExclude) continue; 
+            }
+
+            if (rule.RightIncludes.Count > 0) {
+                foreach (var tag in rule.RightIncludes) {
+                    if (IntrospectiveContains(input, rightStart, rightLen, tag)) { isTriggered = true; break; }
+                }
+            }
+
+            if ((rule.LeftIncludes.Count == 0 && rule.RightIncludes.Count == 0) || isTriggered) {
+                localReplaceCount++;
+                matchedTarget = rule.Target;
+                matchLen = pKey.Length;
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+        static bool IntrospectiveContains(string src, int viewStart, int viewLen, string target) {
+            if (target.Length == 0) return true;
+            if (viewLen < target.Length) return false;
+
+            int maxIdx = viewStart + viewLen - target.Length;
+            for (int s = viewStart; s <= maxIdx; s++) {
+                bool match = true;
+                for (int t = 0; t < target.Length; t++) {
+                    if (src[s + t] != target[t]) {
+                        match = false;
+                        break;
+                    }
+                }
+                if (match) return true;
+            }
+            return false;
+        }
+
         static Func<int, int, string, string> LogicDelegate = null;
         static object LogicInstance = null;
         static bool[] HasContextLogic = new bool[65536];
+
+        // 執行緒專屬記憶體池 (Zero-Allocation 核心)
+        class ThreadState {
+            public double[] routeScore = new double[1024];
+            public int[] routeNext = new int[1024];
+            public double[] vBuf = new double[4096];
+            public int[] bpBuf = new int[4096];
+            public int[] spBuf = new int[1024];
+            public StringBuilder sb = new StringBuilder(1024);
+            public StringBuilder fbSb = new StringBuilder(128);
+
+            public void EnsureSize(int len) {
+                if (routeScore.Length < len + 1) {
+                    int newSize = len + 4096;
+                    routeScore = new double[newSize];
+                    routeNext = new int[newSize];
+                    sb.Capacity = newSize;
+                }
+            }
+
+            public void EnsureViterbiSize(int obsLen) {
+                if (obsLen * 4 > vBuf.Length) {
+                    int newSize = obsLen + 512;
+                    vBuf = new double[newSize * 4];
+                    bpBuf = new int[newSize * 4];
+                    spBuf = new int[newSize];
+                }
+            }
+        }
 
         [STAThread]
         public static void Main(string[] args) {
@@ -94,26 +271,42 @@ namespace MyTools {
                     string jseePath = dictParams.Length > 1 ? dictParams[1] : "";
                     bool needJieba = dictParams.Length > 2 && dictParams[2] == "1";
                     bool phraseExpEnabled = dictParams.Length > 3 ? dictParams[3] == "1" : true;
+                    bool charactersExt = dictParams.Length > 4 && dictParams[4] == "1";
 
                     DateTime dictJseeDate = File.Exists(jseePath) ? File.GetLastWriteTime(jseePath) : DateTime.MinValue;
 
                     string exeDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
                     string targetDictDir = Path.Combine(exeDir, "dictionary");
 
+                    // 加入 fTWVariantsPhrases 定義
                     string fPhrase = "", fChar = "", fTWVariants = "", fPhraseExp = "", fException = "";
-                    string dictBigPath = Path.Combine(targetDictDir, "dict.txt.big");
-                    string fJieba = needJieba ? (File.Exists(dictBigPath) ? "dict.txt.big" : "jieba.dict.utf8") : "";
+                    string fTWVariantsPhrases = "TWVariantsPhrases.txt"; 
+
+                    // 根據模式指派詞典的優先權與替補機制
+                    string fJieba = "";
+                    if (needJieba) {
+                        string pBig = Path.Combine(targetDictDir, "dict.txt.big");
+                        string pSmall = Path.Combine(targetDictDir, "jieba.dict.utf8");
+
+                        if (dictMode == "S2T" || dictMode == "S2TE") {
+                            fJieba = File.Exists(pSmall) ? "jieba.dict.utf8" : (File.Exists(pBig) ? "dict.txt.big" : "");
+                        } else {
+                            fJieba = File.Exists(pBig) ? "dict.txt.big" : (File.Exists(pSmall) ? "jieba.dict.utf8" : "");
+                        }
+                    }
+
                     string fUserDict = needJieba ? "user.dict.utf8" : "";
                     string fHmm = needJieba ? "hmm_model.utf8" : "";
 
-                    if (dictMode == "T2S") { fPhrase = "TSPhrases.txt"; fChar = "TSCharacters.txt"; fTWVariants = "TWVariants.txt"; fPhraseExp = "T2SrawPhraseExpandedData.txt"; fException = "T2SrawExceptionData.txt"; }
+                    if (dictMode == "T2S") { fPhrase = "TSPhrases.txt"; fChar = "TSCharacters.txt"; fTWVariants = "TWVariants.txt"; fPhraseExp = "T2SrawPhraseExpandedData.txt"; fException = "T2SrawExceptionData.txt"; fTWVariantsPhrases = ""; }
                     else if (dictMode == "S2T") { fPhrase = "STPhrases.txt"; fChar = "STCharacters.txt"; fTWVariants = "TWVariants.txt"; fPhraseExp = "S2TrawPhraseExpandedData.txt"; fException = "S2TrawExceptionData.txt"; }
                     else if (dictMode == "S2TE") { fPhrase = "STPhrases.txt"; fChar = "STCharacters.txt"; fTWVariants = "TWVariants.txt"; fPhraseExp = "S2TErawPhraseExpandedData.txt"; fException = "S2TrawExceptionData.txt"; }
-                    else if (dictMode == "S2TWP") { fPhrase = "TWPhrases.txt"; fPhraseExp = "S2TWPrawPhraseExpandedData.txt"; }
-                    else if (dictMode == "TW2SP") { fPhrase = "TWPhrasesRev.txt"; fPhraseExp = "TW2SPrawPhraseExpandedData.txt"; }
+                    else if (dictMode == "S2TWP") { fPhrase = "TWPhrases.txt"; fPhraseExp = "S2TWPrawPhraseExpandedData.txt"; fTWVariantsPhrases = ""; }
+                    else if (dictMode == "TW2SP") { fPhrase = "TWPhrasesRev.txt"; fPhraseExp = "TW2SPrawPhraseExpandedData.txt"; fTWVariantsPhrases = ""; }
 
                     bool hasNewerUpdate = false;
-                    string[] filesToCheck = { fPhrase, fChar, fTWVariants, fPhraseExp, fException, fJieba, fUserDict, fHmm };
+
+                    string[] filesToCheck = { fPhrase, fChar, fTWVariants, fPhraseExp, fException, fJieba, fUserDict, fHmm, fTWVariantsPhrases };
                     foreach (var f in filesToCheck) {
                         if (!string.IsNullOrEmpty(f)) {
                             string txtPath = Path.Combine(targetDictDir, f);
@@ -154,8 +347,53 @@ namespace MyTools {
                     string jiebaData = LoadData("rawJiebaData", fJieba, mustReadJieba); 
                     string userDictData = LoadData("rawUserDictData", fUserDict, mustReadUser);
                     string hmmData = LoadData("rawHmmData", fHmm, mustReadHmm);
+                    // 讀取 rawTWVariantsPhrases
+                    string twVariantsPhrasesData = LoadData("rawTWVariantsPhrases", fTWVariantsPhrases, false);
 
-                    string output = string.Join("|||BLOCK_SEP|||", new string[] { phraseData, charData, twVariants, phraseExpData, exceptionData, jiebaData, userDictData, hmmData });
+                    // 若 charactersExt 為 true 且單字對應表有內容，執行 C# 行級高效過濾
+                    if (charactersExt && !string.IsNullOrEmpty(charData)) {
+                        StringBuilder cleanCharSb = new StringBuilder(charData.Length);
+                        bool lastLineWasTofuRisk = false;
+
+                        using (StringReader sr = new StringReader(charData)) {
+                            string l;
+                            while ((l = sr.ReadLine()) != null) {
+                                string trimL = l.Trim();
+                                if (trimL.StartsWith("# @tofu-risk:")) {
+                                    lastLineWasTofuRisk = true;
+                                    cleanCharSb.AppendLine(l);
+                                    continue;
+                                }
+                                if (trimL.StartsWith("#")) {
+                                    lastLineWasTofuRisk = false;
+                                    cleanCharSb.AppendLine(l);
+                                    continue;
+                                }
+
+                                string[] pts = l.Split('\t');
+                                if (lastLineWasTofuRisk && pts.Length >= 2) {
+                                    string key = pts[0].Trim();
+                                    string[] vals = pts[1].Split(new char[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+
+                                    if (vals.Length > 0 && vals[0].Trim() == key) {
+                                        string[] newVals = new string[vals.Length - 1];
+                                        Array.Copy(vals, 1, newVals, 0, vals.Length - 1);
+                                        vals = newVals;
+                                    }
+
+                                    if (vals.Length > 0) {
+                                        cleanCharSb.AppendLine(key + "\t" + string.Join(" ", vals));
+                                    }
+                                } else {
+                                    cleanCharSb.AppendLine(l);
+                                }
+                                lastLineWasTofuRisk = false;
+                            }
+                        }
+                        charData = cleanCharSb.ToString();
+                    }
+
+                    string output = string.Join("|||BLOCK_SEP|||", new string[] { phraseData, charData, twVariants, phraseExpData, exceptionData, jiebaData, userDictData, hmmData, twVariantsPhrasesData });
 
                     try { Clipboard.SetText(output); } catch { return 0; }
                     return 1;
@@ -188,6 +426,7 @@ namespace MyTools {
                 else if (parts.Length > 6 && parts.Length < 8) int.TryParse(parts[6], out threadCount);
 
                 bool isPhraseExpActive = parts.Length > 9 ? parts[9] == "1" : true;
+                bool isCharactersExtActive = parts.Length > 10 && parts[10] == "1";
 
                 bool isS2T = mode.IndexOf("S2T") != -1;
                 bool isT2S = mode.IndexOf("T2S") != -1;
@@ -201,17 +440,31 @@ namespace MyTools {
                 string baseDir = Path.GetDirectoryName(macroPath);
                 DateTime jseeDate = File.GetLastWriteTime(macroPath);
 
+                // 加入 fileTWVariantsPhrases 定義與阻斷機制
                 string filePhrase = "", fileChar = "", fileTWVariants = "", filePhraseExp = "", fileException = "";
-                string dictBigPathForLoad = Path.Combine(baseDir, "dictionary", "dict.txt.big");
-                string fileJieba = isJiebaActive ? (File.Exists(dictBigPathForLoad) ? "dict.txt.big" : "jieba.dict.utf8") : "";
+                string fileTWVariantsPhrases = "TWVariantsPhrases.txt";
+
+                // 根據簡繁模式進行詞典的優先與替補判定
+                string fileJieba = "";
+                if (isJiebaActive) {
+                    string pBig = Path.Combine(baseDir, "dictionary", "dict.txt.big");
+                    string pSmall = Path.Combine(baseDir, "dictionary", "jieba.dict.utf8");
+
+                    if (mode == "S2T" || mode == "S2TE") {
+                        fileJieba = File.Exists(pSmall) ? "jieba.dict.utf8" : (File.Exists(pBig) ? "dict.txt.big" : "");
+                    } else {
+                        fileJieba = File.Exists(pBig) ? "dict.txt.big" : (File.Exists(pSmall) ? "jieba.dict.utf8" : "");
+                    }
+                }
+
                 string fileUserDict = isJiebaActive ? "user.dict.utf8" : "";
                 string fileHmm = isJiebaActive ? "hmm_model.utf8" : "";
 
-                if (mode == "T2S") { filePhrase = "TSPhrases.txt"; fileChar = "TSCharacters.txt"; fileTWVariants = "TWVariants.txt"; filePhraseExp = "T2SrawPhraseExpandedData.txt"; fileException = "T2SrawExceptionData.txt"; }
+                if (mode == "T2S") { filePhrase = "TSPhrases.txt"; fileChar = "TSCharacters.txt"; fileTWVariants = "TWVariants.txt"; filePhraseExp = "T2SrawPhraseExpandedData.txt"; fileException = "T2SrawExceptionData.txt"; fileTWVariantsPhrases = ""; }
                 else if (mode == "S2T") { filePhrase = "STPhrases.txt"; fileChar = "STCharacters.txt"; fileTWVariants = "TWVariants.txt"; filePhraseExp = "S2TrawPhraseExpandedData.txt"; fileException = "S2TrawExceptionData.txt"; }
                 else if (mode == "S2TE") { filePhrase = "STPhrases.txt"; fileChar = "STCharacters.txt"; fileTWVariants = "TWVariants.txt"; filePhraseExp = "S2TErawPhraseExpandedData.txt"; fileException = "S2TrawExceptionData.txt"; }
-                else if (mode == "S2TWP") { filePhrase = "TWPhrases.txt"; filePhraseExp = "S2TWPrawPhraseExpandedData.txt"; }
-                else if (mode == "TW2SP") { filePhrase = "TWPhrasesRev.txt"; filePhraseExp = "TW2SPrawPhraseExpandedData.txt"; }
+                else if (mode == "S2TWP") { filePhrase = "TWPhrases.txt"; filePhraseExp = "S2TWPrawPhraseExpandedData.txt"; fileTWVariantsPhrases = ""; }
+                else if (mode == "TW2SP") { filePhrase = "TWPhrasesRev.txt"; filePhraseExp = "TW2SPrawPhraseExpandedData.txt"; fileTWVariantsPhrases = ""; }
 
                 Func<string, string, bool, string> LoadSmartBlock = (blockName, fileName, forceJieba) => {
                     if (string.IsNullOrEmpty(fileName)) return "";
@@ -237,6 +490,9 @@ namespace MyTools {
                 string rawJiebaDataStr = LoadSmartBlock("rawJiebaData", fileJieba, isJiebaActive);
                 string rawUserDictDataStr = LoadSmartBlock("rawUserDictData", fileUserDict, isJiebaActive);
                 string rawHmmDataStr = LoadSmartBlock("rawHmmData", fileHmm, isJiebaActive);
+                string rawTWVariantsPhrasesStr = LoadSmartBlock("rawTWVariantsPhrases", fileTWVariantsPhrases, false);
+
+                LoadPhraseLogic(source);
 
                 if (string.IsNullOrEmpty(rawPhraseDataStr) && string.IsNullOrEmpty(rawCharDataStr) && (isS2T || isT2S)) {
                     MessageBox.Show("Dictionary data missing.", "BoostCVT", MessageBoxButtons.OK);
@@ -261,6 +517,9 @@ namespace MyTools {
                 var exceptionMap = new Dictionary<string, string>();
                 var variantMap = new Dictionary<char, char>();
 
+                var twPhrasesMap = new Dictionary<string, string>();
+                var reverseCharMap = new Dictionary<char, string>();
+
                 if (!isShift && !isAlt && (isS2T || isT2S)) {
                     using (StringReader r = new StringReader(rawTWVariantsStr)) {
                         string l; while ((l = r.ReadLine()) != null) {
@@ -272,6 +531,20 @@ namespace MyTools {
                                     if (isS2T) variantMap[k[0]] = v[0];
                                     else variantMap[v[0]] = k[0];
                                 }
+                            }
+                        }
+                    }
+                }
+
+                if (isS2T && !isAlt && !isShift && !string.IsNullOrEmpty(rawTWVariantsPhrasesStr)) {
+                    using (StringReader r = new StringReader(rawTWVariantsPhrasesStr)) {
+                        string l; while ((l = r.ReadLine()) != null) {
+                            if (string.IsNullOrWhiteSpace(l) || l[0] == '#') continue;
+                            string[] p = l.Split('\t');
+                            if (p.Length >= 2 && p[0].Length > 0 && p[1].Length > 0) {
+                                string k = p[0].Trim(); 
+                                string v = p[1].Split(' ')[0].Trim();
+                                if (k.Length > 0 && v.Length > 0) twPhrasesMap[k] = v;
                             }
                         }
                     }
@@ -298,30 +571,106 @@ namespace MyTools {
                     }
                 }
 
-                Action<string> parseMainData = (data) => {
+                Action<string, bool> parseMainData = (data, isCharFile) => {
                     if (string.IsNullOrEmpty(data)) return;
                     using (StringReader r = new StringReader(data)) {
-                        string l; while ((l = r.ReadLine()) != null) {
-                            if (string.IsNullOrWhiteSpace(l) || l[0] == '#') continue;
+                        string l; 
+                        bool lastLineWasTofuRisk = false;
+
+                        while ((l = r.ReadLine()) != null) {
+                            string trimL = l.Trim();
+                            if (isCharFile && isCharactersExtActive) {
+                                if (trimL.StartsWith("# @tofu-risk:")) {
+                                    lastLineWasTofuRisk = true;
+                                    continue;
+                                }
+                                if (trimL.StartsWith("#")) {
+                                    lastLineWasTofuRisk = false;
+                                    continue;
+                                }
+                            } else {
+                                if (string.IsNullOrWhiteSpace(l) || l[0] == '#') continue;
+                            }
+
                             string[] pts = l.Split('\t');
                             if (pts.Length >= 2) {
                                 string key = pts[0].Trim();
-                                if (isCtx && !isShift && ContextLogicAnchors.Contains(key)) continue;
-                                string firstTarget = pts[1].Split(' ')[0].Trim();
-                                string target = exceptionMap.ContainsKey(key) ? exceptionMap[key] : applyTWVariants(firstTarget);
+                                if (isCtx && !isShift && ContextLogicAnchors.Contains(key)) {
+                                    lastLineWasTofuRisk = false;
+                                    continue;
+                                }
+
+                                string valPart = pts[1];
+                                // 如果是字元表且觸發豆腐字擴充模式
+                                if (isCharFile && isCharactersExtActive && lastLineWasTofuRisk) {
+                                    string[] vals = valPart.Split(new char[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                                    if (vals.Length > 0 && vals[0].Trim() == key) {
+                                        string[] newVals = new string[vals.Length - 1];
+                                        Array.Copy(vals, 1, newVals, 0, vals.Length - 1);
+                                        vals = newVals;
+                                    }
+                                    valPart = string.Join(" ", vals);
+                                }
+
+                                if (string.IsNullOrEmpty(valPart)) {
+                                    lastLineWasTofuRisk = false;
+                                    continue;
+                                }
+
+                                string firstTarget = valPart.Split(' ')[0].Trim();
+
+                                string target = exceptionMap.ContainsKey(key) ? exceptionMap[key] : (twPhrasesMap.ContainsKey(firstTarget) ? twPhrasesMap[firstTarget] : applyTWVariants(firstTarget));
                                 if (!finalDict.ContainsKey(key)) finalDict[key] = target;
+
+                                if (isCharFile && key.Length == 1 && valPart.Length > 0) {
+                                    string[] tVals = valPart.Split(new char[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                                    foreach (string v in tVals) {
+                                        if (v.Length > 0) {
+                                            char tChar = v[0];
+                                            if (!reverseCharMap.ContainsKey(tChar)) {
+                                                reverseCharMap[tChar] = key;
+                                            }
+                                        }
+                                    }
+                                }
                             }
+                            lastLineWasTofuRisk = false;
                         }
                     }
                 };
 
                 if (!isShift) {
-                    parseMainData(rawExceptionDataStr);
-                    parseMainData(rawPhraseExpandedDataStr);
+                    parseMainData(rawExceptionDataStr, false);
+                    parseMainData(rawPhraseExpandedDataStr, false);
                 }
-                parseMainData(rawPhraseDataStr);
+                parseMainData(rawPhraseDataStr, false);
                 if (mode.IndexOf("S2TWP") == -1 && mode.IndexOf("TW2SP") == -1) {
-                    parseMainData(rawCharDataStr);
+                    parseMainData(rawCharDataStr, true);
+                }
+
+                if (isS2T && !isAlt && !isShift && twPhrasesMap.Count > 0 && reverseCharMap.Count > 0) {
+                    foreach (var kvp in twPhrasesMap) {
+                        string twKey = kvp.Key;
+                        string twVal = kvp.Value;
+                        StringBuilder scKeySb = new StringBuilder(twKey.Length);
+
+                        for (int i = 0; i < twKey.Length; i++) {
+                            char tcChar = twKey[i];
+                            // 原字形精確反查
+                            if (reverseCharMap.ContainsKey(tcChar)) {
+                                scKeySb.Append(reverseCharMap[tcChar]);
+                            } else {
+                                // 嘗試降維再查
+                                char normChar = variantMap.ContainsKey(tcChar) ? variantMap[tcChar] : tcChar;
+                                scKeySb.Append(reverseCharMap.ContainsKey(normChar) ? reverseCharMap[normChar] : normChar.ToString());
+                            }
+                        }
+
+                        string scKey = scKeySb.ToString();
+                        if (!finalDict.ContainsKey(scKey)) {
+                            finalDict[scKey] = twVal;
+                        }
+                    }
                 }
 
                 if (isS2T && !isAlt && !isShift) {
@@ -460,28 +809,43 @@ namespace MyTools {
 
                 string fullInput = Clipboard.GetText();
                 if (string.IsNullOrEmpty(fullInput)) return 0;
-
                 int totalLen = fullInput.Length;
-                int[] cuts = new int[threadCount + 1];
-                cuts[0] = 0;
-                cuts[threadCount] = totalLen;
 
-                // 安全執行緒切割
-                int subSize = totalLen / threadCount;
-                for (int k = 1; k < threadCount; k++) {
-                    int expectedPos = subSize * k;
-                    int safeCut = fullInput.IndexOf('\n', expectedPos);
+                // 微型斷句隔離 (Micro-Chunking) 
+                int targetChunkSize = 65536; 
+                int fastSkipLimit = (mode == "S2TWP" || mode == "TW2SP") ? 0x21 : 0x80;
+                List<int> cutsList = new List<int>();
+                cutsList.Add(0);
+                int expectedPos = 0;
 
-                    if (safeCut == -1 || safeCut >= totalLen - 1) {
-                        for (int m = k; m < threadCount; m++) {
-                            cuts[m] = totalLen;
+                while (expectedPos + targetChunkSize < totalLen) {
+                    int safeCut = fullInput.IndexOf('\n', expectedPos + targetChunkSize);
+
+                    if (safeCut != -1 && safeCut - expectedPos < targetChunkSize * 4) {
+                        cutsList.Add(safeCut + 1);
+                        expectedPos = safeCut + 1;
+                    } else {
+                        int fallbackLimit = Math.Min(totalLen - 1, expectedPos + targetChunkSize + 1024);
+                        int fallbackCut = -1;
+                        for (int c = expectedPos + targetChunkSize; c <= fallbackLimit; c++) {
+                            if (fullInput[c] < fastSkipLimit) {
+                                fallbackCut = c;
+                                break;
+                            }
                         }
-                        break;
+                        if (fallbackCut != -1) {
+                            cutsList.Add(fallbackCut + 1);
+                            expectedPos = fallbackCut + 1;
+                        } else {
+                            cutsList.Add(expectedPos + targetChunkSize);
+                            expectedPos += targetChunkSize;
+                        }
                     }
-                    cuts[k] = safeCut + 1;
                 }
+                cutsList.Add(totalLen);
+                int totalChunks = cutsList.Count - 1;
 
-                string[] chunks = new string[threadCount];
+                string[] chunksOut = new string[totalChunks];
                 int totalReplaceCount = 0;
 
                 // 配置加分與懲罰常數 (權重控制面板)
@@ -500,608 +864,656 @@ namespace MyTools {
                 double FREQ_BONUS_LOW = 0.5;
                 double FREQ_BONUS_FEW = 0.1;
 
-                string ONE_TO_MANY_LIST = "㐹万丑个丰了于云亘仆仇仑价仿伙余佛佣俊修借僵克党冬冲凄准凌几凶出划别刮制勋千升卜占卤卷厂历厘参发只台叶叹吁吃合吊同后向周咨咸咽哄哗唇啮喂噪回团困坛坝埙复夫夸奸姜娘娴宁它家尝尸尽局岩岳巨布帘席干并幸广庵弥弦当录彩征御志念恤恶愈愿戚才扎托扣折抵拐挂挨挽据搜摆斗旋昆暗曲术朱朴杆杠杯杰松板极柜栗核梁欲毁汇沈沾泛注涂涌淀游滟漓炼烟熏玩璇症皂矩确私秋种筑签系纤绱绷胄背胜胡脏腊腌膻致舍艳芸苏苔苹范荐荡荫药获蒙蔑虫蚝蜡蝎表袅裥证谥谷赝赞跖辟迹适郁酸采里鉴针钟钥钫钻铲链锫镋镎镢镰闲雕面须饥鹇乾儘剋劃噁噹夥崙廬彷徵戰擣於瀋瀰牴畫瞭祇綵線薹藉蘋衹襬覆託諫諮譾買鉅鍊鍾鏇钁開閒阪靦韝願餘餬餱餵驄鵰麪麴麵麼麽齧洒虱湿袜";
+                string ONE_TO_MANY_S2T = "㐹万丑个丰了于云亘仆仇仑价仿伙余佛佣俊修借僵克党冬冲凄准凌几凶出划别刮制勋千升卜占卤卷厂历厘参发只台叶叹吁吃合吊同后向周咨咸咽哄哗唇啮喂噪回团困坛坝埙复夫夸奸姜娘娴宁它家尝尸尽局岩岳巨布帘席干并幸广庵弥弦当录彩征御志念恤恶愈愿戚才扎托扣折抵拐挂挨挽据搜摆斗旋昆暗曲术朱朴杆杠杯杰松板极柜栗核梁欲毁汇沈沾泛注涂涌淀游滟漓炼烟熏玩璇症皂矩确私秋种筑签系纤绱绷胄背胜胡脏腊腌膻致舍艳芸苏苔苹范荐荡荫药获蒙蔑虫蚝蜡蝎表袅裥证谥谷赝赞跖辟迹适郁酸采里鉴针钟钥钫钻铲链锫镋镎镢镰闲雕面须饥鹇洒虱湿袜";
+                string ONE_TO_MANY_T2S = "乾儘剋劃噁噹夥崙廬彷徵戰擣於瀋瀰牴畫瞭祇綵線薹藉蘋衹襬覆託諫諮譾買鉅鍊鍾鏇钁開閒阪靦韝願餘餬餱餵驄鵰麪麴麵麼麽齧";
 
                 bool[] IsOneToMany = new bool[65536];
-                foreach (char c in ONE_TO_MANY_LIST) {
+                string targetOneToManyList = (mode == "S2T" || mode == "S2TE") ? ONE_TO_MANY_S2T : ONE_TO_MANY_T2S;
+                foreach (char c in targetOneToManyList) {
                     IsOneToMany[c] = true;
                 }
 
-                System.Threading.Tasks.Parallel.For(0, threadCount, delegate(int tIdx) {
-                    int start = cuts[tIdx];
-                    int end = cuts[tIdx + 1];
-                    if (start >= end) { chunks[tIdx] = ""; return; }
+                System.Threading.Tasks.ParallelOptions options = new System.Threading.Tasks.ParallelOptions { 
+                    MaxDegreeOfParallelism = threadCount 
+                };
 
-                    string input = fullInput.Substring(start, end - start);
-                    int len = input.Length, i = 0, lastMatchEnd = 0, localReplaceCount = 0;
-                    StringBuilder sb = null;
-                    int fastSkipLimit = (mode == "S2TWP" || mode == "TW2SP") ? 0x21 : 0x80;
+                System.Threading.Tasks.Parallel.For<ThreadState>(
+                    0, 
+                    totalChunks, 
+                    options, 
+                    () => new ThreadState(), 
+                    (int tIdx, System.Threading.Tasks.ParallelLoopState loopState, ThreadState state) => {
+                        int start = cutsList[tIdx];
+                        int end = cutsList[tIdx + 1];
+                        int len = end - start;
+                        if (len <= 0) { chunksOut[tIdx] = ""; return state; }
 
-                    if (isJiebaActive) {
-                        // 第 1 階段：Jieba DAG + DP 路由計算
-                        double[] routeScore = new double[len + 1];
-                        int[] routeNext = new int[len + 1];
-                        routeScore[len] = 0;
-                        routeNext[len] = len;
+                        state.EnsureSize(len);
+                        int i = 0, lastMatchEnd = 0, localReplaceCount = 0;
+                        bool hasReplacements = false;
 
-                        // [零分配優化] HMM 專屬池化緩衝區
-                        double[,] vBuf = new double[512, 4];
-                        int[,] bpBuf = new int[512, 4];
-                        int[] spBuf = new int[512];
+                        double[] routeScore = state.routeScore;
+                        int[] routeNext = state.routeNext;
+                        StringBuilder sb = state.sb;
+                        StringBuilder fbSb = state.fbSb;
+                        sb.Length = 0;
 
-                        Action<int, int> runViterbi = (startPtr, obsLen) => {
-                            if (hmm == null || obsLen == 0) {
-                                routeNext[startPtr] = startPtr + obsLen;
-                                return;
-                            }
+                        if (isJiebaActive) {
+                            // 第 1 階段：Jieba DAG + DP 路由計算
+                            routeScore[len] = 0;
+                            routeNext[len] = len;
 
-                            // 安全設計：長度在 512 內直接用共用陣列防 GC，超過才 new
-                            double[,] V = obsLen <= 512 ? vBuf : new double[obsLen, 4];
-                            int[,] backPath = obsLen <= 512 ? bpBuf : new int[obsLen, 4];
-                            int[] statesPath = obsLen <= 512 ? spBuf : new int[obsLen];
-
-                            int firstCharCode = (int)input[startPtr];
-                            for (int s = 0; s < 4; s++) {
-                                V[0, s] = hmm.start_p[s] + hmm.emit_p[s * 65536 + firstCharCode];
-                            }
-
-                            for (int t = 1; t < obsLen; t++) {
-                                int charCode = (int)input[startPtr + t];
-                                for (int y = 0; y < 4; y++) {
-                                    double maxProb = double.NegativeInfinity;
-                                    int bestPrevState = 0;
-                                    double emitP = hmm.emit_p[y * 65536 + charCode];
-
-                                    for (int y0 = 0; y0 < 4; y0++) {
-                                        double prob = V[t - 1, y0] + hmm.trans_p[y0, y] + emitP;
-                                        if (prob > maxProb) {
-                                            maxProb = prob;
-                                            bestPrevState = y0;
-                                        }
-                                    }
-                                    V[t, y] = maxProb;
-                                    backPath[t, y] = bestPrevState;
+                            Action<int, int> runViterbi = (startPtr, obsLen) => {
+                                if (hmm == null || obsLen == 0) {
+                                    routeNext[startPtr] = startPtr + obsLen;
+                                    return;
                                 }
-                            }
+                                state.EnsureViterbiSize(obsLen);
+                                double[] V = state.vBuf;
+                                int[] backPath = state.bpBuf;
+                                int[] statesPath = state.spBuf;
 
-                            int lastState = 3; 
-                            if (V[obsLen - 1, 2] >= V[obsLen - 1, 3]) lastState = 2;
-
-                            statesPath[obsLen - 1] = lastState;
-                            for (int t = obsLen - 2; t >= 0; t--) {
-                                statesPath[t] = backPath[t + 1, statesPath[t + 1]];
-                            }
-
-                            // 零分配優化：直接寫入外層陣列，完全不產生 List<int>
-                            int begin = 0;
-                            for (int k = 0; k < obsLen; k++) {
-                                int s = statesPath[k];
-                                if (s == 2 || s == 3) {
-                                    int hwLen = k - begin + 1;
-                                    routeNext[startPtr + begin] = startPtr + begin + hwLen;
-                                    begin = k + 1;
-                                }
-                            }
-                            if (begin < obsLen) {
-                                routeNext[startPtr + begin] = startPtr + obsLen;
-                            }
-                        };
-
-                        for (int idx = len - 1; idx >= 0; idx--) {
-                            char firstChar = input[idx];
-                            if (firstChar < fastSkipLimit) {
-                                routeScore[idx] = routeScore[idx + 1];
-                                routeNext[idx] = idx + 1;
-                                continue;
-                            }
-
-                            TrieNode node = rootNodes[firstChar];
-                            double bestScore = double.NegativeInfinity;
-                            int bestNext = idx + 1;
-
-                            if (node == null) {
-                                routeScore[idx] = -18.0 + routeScore[idx + 1];
-                                routeNext[idx] = idx + 1;
-                                continue;
-                            }
-
-                            // 動態加扣分常數
-                            double PENALTY_VISION_2 = -2.5; // VisionAnchors 2字詞扣分
-                            double PENALTY_VISION_3 = -0.5; // VisionAnchors 3字詞(含以上)扣分
-                            double PENALTY_CTX = -0.5; // ContextLogicAnchors 扣分
-                            double BONUS_VISION_VOCAB = 15.0; // VisionVocabs 額外加分
-
-                            int j = idx;
-                            TrieNode curr = node;
-                            while (j < len) {
-                                if (curr.LogFreq != -18.0 || curr.Value != null || j == idx) {
-                                    double wordFreq = curr.LogFreq;
-                                    int wordLen = j - idx + 1;
-
-                                    // A：詞典加分機制
-                                    double dictBonus = 0;
-                                    if (wordLen > 1 && curr.Value != null) {
-                                        if (wordLen >= 4) dictBonus = DICT_BONUS_4;
-                                        else if (wordLen == 3) dictBonus = DICT_BONUS_3;
-                                        else dictBonus = DICT_BONUS_2;
-                                    }
-
-                                    // A-2：結巴詞頻分層加分 (8階梯) + 長度給分
-                                    double freqBonus = 0;
-                                    if (wordLen > 1 && curr.LogFreq != -18.0) {
-                                        if (wordFreq > -9.2) freqBonus = FREQ_BONUS_GODLY;
-                                        else if (wordFreq > -9.9) freqBonus = FREQ_BONUS_LEGENDARY;
-                                        else if (wordFreq > -10.3) freqBonus = FREQ_BONUS_EPIC;
-                                        else if (wordFreq > -11.0) freqBonus = FREQ_BONUS_ELITE;
-                                        else if (wordFreq > -13.3) freqBonus = FREQ_BONUS_HIGH;
-                                        else if (wordFreq > -15.5) freqBonus = FREQ_BONUS_MID;
-                                        else if (wordFreq > -16.5) freqBonus = FREQ_BONUS_LOW;
-                                        else freqBonus = FREQ_BONUS_FEW;
-
-                                        if (wordLen >= 4) freqBonus += 9.0;
-                                        else if (wordLen == 3) freqBonus += 3.0;
-                                    }
-
-                                    // B：一對多單字懲罰機制 (直接定址優化)
-                                    double penalty = 0;
-                                    if (wordLen == 1 && IsOneToMany[input[idx]]) {
-                                        penalty = PENALTY_ONE_TO_MANY;
-                                    }
-
-                                    // C: 針對 Set 進行精確加扣分
-                                    // 零分配優化
-                                    double extraWeight = 0;
-                                    if (wordLen > 1) {
-                                        if (curr.IsVisionAnchor) {
-                                            extraWeight += (wordLen == 2) ? PENALTY_VISION_2 : PENALTY_VISION_3;
-                                        }
-                                        if (curr.IsContextAnchor) {
-                                            extraWeight += PENALTY_CTX;
-                                        }
-                                        if (curr.IsVisionVocab) {
-                                            extraWeight += BONUS_VISION_VOCAB;
-                                        }
-                                    }
-
-                                    if (j == idx && wordFreq == -18.0) wordFreq = -18.0;
-
-                                    // 總分計算
-                                    double score = wordFreq + dictBonus + freqBonus + penalty + extraWeight + routeScore[j + 1];
-                                    if (score > bestScore) {
-                                        bestScore = score;
-                                        bestNext = j + 1;
-                                    }
-                                }
-                                j++;
-                                if (j < len) {
-                                    TrieNode nxtNode = null;
-                                    curr = (curr.Children != null && curr.Children.TryGetValue(input[j], out nxtNode)) ? nxtNode : null;
-                                    if (curr == null) break;
-                                }
-                            }
-                            routeScore[idx] = bestScore;
-                            routeNext[idx] = bestNext;
-                        }
-
-                        // 第 1.5 階段：HMM 處理連續單字
-                        int ptr = 0;
-                        while (ptr < len) {
-                            int nextPtr = routeNext[ptr];
-                            int wLen = nextPtr - ptr;
-                            char code = input[ptr];
-
-                            if (wLen == 1 && code >= 0x4E00 && code <= 0x9FFF) {
-                                int startPtr = ptr;
-                                int endPtr = nextPtr;
-                                while (endPtr < len) {
-                                    int nxt = routeNext[endPtr];
-
-                                    char endChar = input[endPtr];
-                                    if (nxt - endPtr == 1 && endChar >= 0x4E00 && endChar <= 0x9FFF) {
-                                        endPtr = nxt;
-                                    } else {
-                                        break;
-                                    }
+                                int firstCharCode = (int)fullInput[start + startPtr];
+                                for (int s = 0; s < 4; s++) {
+                                    V[s] = hmm.start_p[s] + hmm.emit_p[s * 65536 + firstCharCode];
                                 }
 
-                                if (endPtr - startPtr > 1) {
-                                    if (endPtr - startPtr <= hmmLimit) {
-                                        // 零分配：直接操作 routeNext
-                                        runViterbi(startPtr, endPtr - startPtr);
-                                    }
-                                }
-                                ptr = endPtr;
-                            } else {
-                                ptr = nextPtr;
-                            }
-                        }
+                                for (int t = 1; t < obsLen; t++) {
+                                    int charCode = (int)fullInput[start + startPtr + t];
+                                    for (int y = 0; y < 4; y++) {
+                                        double maxProb = double.NegativeInfinity;
+                                        int bestPrevState = 0;
+                                        double emitP = hmm.emit_p[y * 65536 + charCode];
 
-                        // 第 2 階段：轉換輸出 (整合 ContextLogic 與 Fallback)
-                        int extractIdx = 0;
-                        while (extractIdx < len) {
-                            int nxt = routeNext[extractIdx];
-
-                            // 🗡️ 真・視界邏輯介入 (零分配加速)
-                            int _wLen = nxt - extractIdx;
-
-                            // 用 IsAnchorStart 擋掉不是錨點的詞
-                            if (VisionAnchors != null && VisionAnchors.Count > 0 && _wLen > 1 && IsAnchorStart[input[extractIdx]]) 
-                            {
-                                // 第一段拔刀：偵測到定錨點 (純字典樹判定，0 Allocation)
-                                bool isAnchor = false;
-                                TrieNode aNode = rootNodes[input[extractIdx]];
-                                if (aNode != null) {
-                                    for (int k = 1; k < _wLen; k++) {
-                                        TrieNode nextN = null;
-                                        if (aNode.Children != null && aNode.Children.TryGetValue(input[extractIdx + k], out nextN)) {
-                                            aNode = nextN;
-                                        } else { 
-                                            aNode = null; 
-                                            break; 
-                                        }
-                                    }
-                                    if (aNode != null && aNode.IsVisionAnchor) isAnchor = true;
-                                }
-
-                                if (isAnchor)
-                                {
-                                    int visionIdx = extractIdx + _wLen - 1; // 站位在交界字
-                                    int visionWordLen = 0; // 用記錄長度取代 string visionWord
-
-                                    // 向後掃描尋找強勢詞
-                                    int vk = visionIdx + 1;
-                                    TrieNode continuousNode = rootNodes[input[visionIdx]];
-
-                                    while (vk < len && (vk - visionIdx) <= 8)
-                                    {
-                                        if (continuousNode != null) 
-                                        {
-                                            TrieNode nextN = null;
-                                            if (continuousNode.Children != null && continuousNode.Children.TryGetValue(input[vk], out nextN)) {
-                                                continuousNode = nextN;
-                                            } else {
-                                                continuousNode = null;
+                                        for (int y0 = 0; y0 < 4; y0++) {
+                                            double prob = V[(t - 1) * 4 + y0] + hmm.trans_p[y0, y] + emitP;
+                                            if (prob > maxProb) {
+                                                maxProb = prob;
+                                                bestPrevState = y0;
                                             }
                                         }
-
-                                        int currentSubLen = vk - visionIdx + 1;
-
-                                        // 只要長度大於 1，且符合條件即鎖定
-                                        if (currentSubLen > 1 && continuousNode != null) 
-                                        {
-                                            if (continuousNode.Value != null || continuousNode.IsVisionVocab || continuousNode.IsVisionAnchor) 
-                                            {
-                                                visionWordLen = currentSubLen; 
-                                            }
-                                        }
-
-                                        // 核心斷鏈優化
-                                        if (continuousNode == null) break;
-
-                                        vk++;
-                                    }
-
-                                    // 第二段揮斬：穩定性檢查
-                                    if (visionWordLen > 1) 
-                                    {
-                                        bool isStable = true;
-                                        int stabIdx = visionIdx + visionWordLen - 1;
-
-                                        // 再次向後掃描：看有沒有更強的詞
-                                        int sk = stabIdx + 1;
-                                        TrieNode sNode = rootNodes[input[stabIdx]];
-
-                                        while (sk < len && (sk - stabIdx) <= 8)
-                                        {
-                                            if (sNode != null) 
-                                            {
-                                                TrieNode nextSN = null;
-                                                if (sNode.Children != null && sNode.Children.TryGetValue(input[sk], out nextSN)) 
-                                                {
-                                                    sNode = nextSN;
-                                                    // 發現假象，收刀不砍
-                                                    if (sNode.IsVisionVocab) 
-                                                    {
-                                                        isStable = false; 
-                                                        break;
-                                                    }
-                                                } 
-                                                else 
-                                                {
-                                                    sNode = null;
-                                                }
-                                            }
-
-                                            // 斷鏈優化
-                                            if (sNode == null) break;
-
-                                            sk++;
-                                        }
-
-                                        if (isStable)
-                                        {
-                                            nxt = extractIdx + _wLen - 1;
-                                        }
+                                        V[t * 4 + y] = maxProb;
+                                        backPath[t * 4 + y] = bestPrevState;
                                     }
                                 }
-                            }
 
-                            int wordLen = nxt - extractIdx;
-                            char firstChar = input[extractIdx];
+                                int lastState = 3; 
+                                if (V[(obsLen - 1) * 4 + 2] >= V[(obsLen - 1) * 4 + 3]) lastState = 2;
 
-                            if (firstChar < fastSkipLimit) {
-                                extractIdx = nxt; continue;
-                            }
-
-                            string openccTarget = null;
-                            TrieNode node = rootNodes[firstChar];
-
-                            if (node != null) {
-                                if (wordLen == 1) {
-                                    if (isCtx && !isShift && LogicDelegate != null && HasContextLogic[firstChar]) {
-                                        string logicResult = LogicDelegate((int)firstChar, start + extractIdx, fullInput);
-                                        if (logicResult != null) openccTarget = logicResult;
-                                    }
-                                    if (openccTarget == null && node.Value != null) {
-                                        openccTarget = node.Value;
-                                    }
-                                } else {
-                                    TrieNode currNode = node;
-                                    for (int k = 1; k < wordLen; k++) {
-                                        TrieNode nextN;
-                                        if (currNode.Children != null && currNode.Children.TryGetValue(input[extractIdx + k], out nextN)) {
-                                            currNode = nextN;
-                                        } else {
-                                            currNode = null; break;
-                                        }
-                                    }
-                                    if (currNode != null && currNode.Value != null) openccTarget = currNode.Value;
-                                }
-                            }
-
-                            // 次級貪婪匹配回退 (Fallback) 與 零分配優化
-                            string finalTarget = null;
-                            if (openccTarget != null) {
-                                finalTarget = openccTarget;
-                            } else {
-                                int subK = 0;
-                                StringBuilder fbSb = null; // 沒換字就不建立
-
-                                while (subK < wordLen) {
-                                    char ch = input[extractIdx + subK];
-                                    int longestMatchLen = 0;
-                                    string longestMatchTarget = null;
-
-                                    TrieNode fNode = rootNodes[ch];
-                                    if (fNode != null) {
-                                        if (fNode.Value != null) {
-                                            longestMatchLen = 1;
-                                            longestMatchTarget = fNode.Value;
-                                        }
-                                        int scan = 1;
-                                        TrieNode temp = fNode;
-                                        while (subK + scan < wordLen) {
-                                            TrieNode nextN;
-                                            if (temp.Children == null || !temp.Children.TryGetValue(input[extractIdx + subK + scan], out nextN)) break;
-                                            temp = nextN;
-                                            if (temp.Value != null) {
-                                                longestMatchLen = scan + 1;
-                                                longestMatchTarget = temp.Value;
-                                            }
-                                            scan++;
-                                        }
-                                    }
-
-                                    if (longestMatchLen <= 1 && isCtx && !isShift && LogicDelegate != null && HasContextLogic[ch]) {
-                                        string lRes = LogicDelegate((int)ch, start + extractIdx + subK, fullInput);
-                                        if (lRes != null) {
-                                            longestMatchTarget = lRes;
-                                            longestMatchLen = 1;
-                                        }
-                                    }
-
-                                    int matchLen = Math.Max(1, longestMatchLen);
-
-                                    // 核心加速：若有詞典替換，才啟動 StringBuilder 並補齊前方未改的字元
-                                    if (longestMatchTarget != null) {
-                                        if (fbSb == null) {
-                                            fbSb = new StringBuilder(wordLen * 2);
-                                            if (subK > 0) fbSb.Append(input, extractIdx, subK);
-                                        }
-                                        fbSb.Append(longestMatchTarget);
-                                    } else if (fbSb != null) {
-                                        fbSb.Append(ch);
-                                    }
-
-                                    subK += matchLen;
-                                }
-                                if (fbSb != null) finalTarget = fbSb.ToString();
-                            }
-
-                            // 零分配比較邏輯：直接查 input 陣列，不產生垃圾字串
-                            if (finalTarget != null) {
-                                bool isChanged = false;
-                                if (finalTarget.Length != wordLen) isChanged = true;
-                                else { 
-                                    for (int k = 0; k < wordLen; k++) {
-                                        if (finalTarget[k] != input[extractIdx + k]) { isChanged = true; break; } 
-                                    } 
+                                statesPath[obsLen - 1] = lastState;
+                                for (int t = obsLen - 2; t >= 0; t--) {
+                                    statesPath[t] = backPath[(t + 1) * 4 + statesPath[t + 1]];
                                 }
 
-                                if (isChanged) {
-                                    localReplaceCount++;
-                                    if (sb == null) sb = new StringBuilder(len + (len / 100));
-                                    if (extractIdx > lastMatchEnd) sb.Append(input, lastMatchEnd, extractIdx - lastMatchEnd);
-                                    sb.Append(finalTarget);
-                                    lastMatchEnd = nxt;
+                                int begin = 0;
+                                for (int k = 0; k < obsLen; k++) {
+                                    int s = statesPath[k];
+                                    if (s == 2 || s == 3) {
+                                        int hwLen = k - begin + 1;
+                                        routeNext[startPtr + begin] = startPtr + begin + hwLen;
+                                        begin = k + 1;
+                                    }
                                 }
-                            }
-                            extractIdx = nxt;
-                        }
+                                if (begin < obsLen) {
+                                    routeNext[startPtr + begin] = startPtr + obsLen;
+                                }
+                            };
 
-                    } else {
-                        // 原本的貪婪最長匹配轉換 (非結巴模式)
-                        while (i < len) {
-                            while (i + 3 < len && (input[i] | input[i + 1] | input[i + 2] | input[i + 3]) < fastSkipLimit) i += 4;
-                            while (i < len && input[i] < fastSkipLimit) i++; if (i >= len) break; 
-                            char firstChar = input[i];
+                            for (int idx = len - 1; idx >= 0; idx--) {
+                                char firstChar = fullInput[start + idx];
+                                if (firstChar < fastSkipLimit) {
+                                    routeScore[idx] = routeScore[idx + 1];
+                                    routeNext[idx] = idx + 1;
+                                    // 區塊跳躍 (反向單步)
+                                    while (idx - 1 >= 0 && fullInput[start + idx - 1] < fastSkipLimit) {
+                                        idx--;
+                                        routeScore[idx] = routeScore[idx + 1];
+                                        routeNext[idx] = idx + 1;
+                                    }
+                                    continue;
+                                }
 
-                            TrieNode node = rootNodes[firstChar];
-                            int longestMatchLen = 0; string longestMatchTarget = null;
+                                TrieNode node = rootNodes[firstChar];
+                                double bestScore = double.NegativeInfinity;
+                                int bestNext = idx + 1;
 
-                            if (node != null) {
-                                if (node.Value != null) { longestMatchLen = 1; longestMatchTarget = node.Value; }
-                                int j = i + 1; TrieNode curr = node;
+                                if (node == null) {
+                                    routeScore[idx] = -18.0 + routeScore[idx + 1];
+                                    routeNext[idx] = idx + 1;
+                                    continue;
+                                }
+
+                                // 動態加扣分常數
+                                double PENALTY_VISION_2 = -2.5; // VisionAnchors 2字詞扣分
+                                double PENALTY_VISION_3 = -0.5; // VisionAnchors 3字詞(含以上)扣分
+                                double PENALTY_CTX = -0.5; // ContextLogicAnchors 扣分
+                                double BONUS_VISION_VOCAB = 15.0; // VisionVocabs 額外加分
+
+                                int j = idx;
+                                TrieNode curr = node;
                                 while (j < len) {
-                                    TrieNode nextNode;
-                                    if (curr.Children == null || !curr.Children.TryGetValue(input[j], out nextNode)) break;
-                                    curr = nextNode;
-                                    if (curr.Value != null) { longestMatchLen = j - i + 1; longestMatchTarget = curr.Value; }
+                                    if (curr.LogFreq != -18.0 || curr.Value != null || j == idx) {
+                                        double wordFreq = curr.LogFreq;
+                                        int wordLen = j - idx + 1;
+
+                                        // A：詞典加分機制
+                                        double dictBonus = 0;
+                                        if (wordLen > 1 && curr.Value != null) {
+                                            if (wordLen >= 4) dictBonus = DICT_BONUS_4;
+                                            else if (wordLen == 3) dictBonus = DICT_BONUS_3;
+                                            else dictBonus = DICT_BONUS_2;
+                                        }
+
+                                        // A-2：結巴詞頻分層加分 (8階梯) + 長度給分
+                                        double freqBonus = 0;
+                                        if (wordLen > 1 && curr.LogFreq != -18.0) {
+                                            if (wordFreq > -9.2) freqBonus = FREQ_BONUS_GODLY;
+                                            else if (wordFreq > -9.9) freqBonus = FREQ_BONUS_LEGENDARY;
+                                            else if (wordFreq > -10.3) freqBonus = FREQ_BONUS_EPIC;
+                                            else if (wordFreq > -11.0) freqBonus = FREQ_BONUS_ELITE;
+                                            else if (wordFreq > -13.3) freqBonus = FREQ_BONUS_HIGH;
+                                            else if (wordFreq > -15.5) freqBonus = FREQ_BONUS_MID;
+                                            else if (wordFreq > -16.5) freqBonus = FREQ_BONUS_LOW;
+                                            else freqBonus = FREQ_BONUS_FEW;
+
+                                            if (wordLen >= 4) freqBonus += 9.0;
+                                            else if (wordLen == 3) freqBonus += 3.0;
+                                        }
+
+                                        // B：一對多單字懲罰機制 (直接定址優化)
+                                        double penalty = 0;
+                                        if (wordLen == 1 && IsOneToMany[fullInput[start + idx]]) {
+                                            penalty = PENALTY_ONE_TO_MANY;
+                                        }
+
+                                        // C: 針對 Set 進行精確加扣分
+                                        double extraWeight = 0;
+                                        if (wordLen > 1) {
+                                            if (curr.IsVisionAnchor) {
+                                                extraWeight += (wordLen == 2) ? PENALTY_VISION_2 : PENALTY_VISION_3;
+                                            }
+                                            if (curr.IsContextAnchor) {
+                                                extraWeight += PENALTY_CTX;
+                                            }
+                                            if (curr.IsVisionVocab) {
+                                                extraWeight += BONUS_VISION_VOCAB;
+                                            }
+                                        }
+
+                                        if (j == idx && wordFreq == -18.0) wordFreq = -18.0;
+
+                                        // 總分計算
+                                        double score = wordFreq + dictBonus + freqBonus + penalty + extraWeight + routeScore[j + 1];
+                                        if (score > bestScore) {
+                                            bestScore = score;
+                                            bestNext = j + 1;
+                                        }
+                                    }
                                     j++;
+                                    if (j < len) {
+                                        TrieNode nxtNode = null;
+                                        curr = (curr.Children != null && curr.Children.TryGetValue(fullInput[start + j], out nxtNode)) ? nxtNode : null;
+                                        if (curr == null) break;
+                                    }
+                                }
+                                routeScore[idx] = bestScore;
+                                routeNext[idx] = bestNext;
+                            }
+
+                            // 第 1.5 階段：HMM 處理連續單字
+                            int ptr = 0;
+                            while (ptr < len) {
+                                if (fullInput[start + ptr] < fastSkipLimit) {
+                                    // 區塊跳躍 (正向 4 步)
+                                    while (ptr + 3 < len && (fullInput[start + ptr] | fullInput[start + ptr + 1] | fullInput[start + ptr + 2] | fullInput[start + ptr + 3]) < fastSkipLimit) ptr += 4;
+                                    while (ptr < len && fullInput[start + ptr] < fastSkipLimit) ptr++;
+                                    continue;
+                                }
+
+                                int nextPtr = routeNext[ptr];
+                                int wLen = nextPtr - ptr;
+                                char code = fullInput[start + ptr];
+
+                                if (wLen == 1 && code >= 0x4E00 && code <= 0x9FFF) {
+                                    int startPtr = ptr;
+                                    int endPtr = nextPtr;
+                                    while (endPtr < len) {
+                                        int nxt = routeNext[endPtr];
+
+                                        char endChar = fullInput[start + endPtr];
+                                        if (nxt - endPtr == 1 && endChar >= 0x4E00 && endChar <= 0x9FFF) {
+                                            endPtr = nxt;
+                                        } else {
+                                            break;
+                                        }
+                                    }
+
+                                    if (endPtr - startPtr > 1) {
+                                        if (endPtr - startPtr <= hmmLimit) {
+                                            runViterbi(startPtr, endPtr - startPtr);
+                                        }
+                                    }
+                                    ptr = endPtr;
+                                } else {
+                                    ptr = nextPtr;
                                 }
                             }
 
-                            // 🔭 視界邏輯 (0 Allocation 極速版)
-                            if (isVis && !isShift && longestMatchLen > 1) {
-                                int foundALen = 0;
-                                TrieNode aN = rootNodes[input[i]];
-                                if (aN != null) {
-                                    if (aN.IsVisionAnchor) foundALen = 1;
-                                    // 往前探勘
-                                    for (int k = 1; k < longestMatchLen; k++) {
-                                        if (aN.Children != null && aN.Children.TryGetValue(input[i + k], out aN)) {
-                                            if (aN.IsVisionAnchor) foundALen = k + 1;
-                                        } else break;
+                            // 第 2 階段：轉換輸出 (整合 ContextLogic 與 Fallback)
+                            int extractIdx = 0;
+                            while (extractIdx < len) {
+                                if (fullInput[start + extractIdx] < fastSkipLimit) {
+                                    // 區塊跳躍 (正向 4 步)
+                                    while (extractIdx + 3 < len && (fullInput[start + extractIdx] | fullInput[start + extractIdx + 1] | fullInput[start + extractIdx + 2] | fullInput[start + extractIdx + 3]) < fastSkipLimit) extractIdx += 4;
+                                    while (extractIdx < len && fullInput[start + extractIdx] < fastSkipLimit) extractIdx++;
+                                    continue;
+                                }
+
+                                int nxt = routeNext[extractIdx];
+
+                                // 檢查 PhraseLogic
+                                if ((nxt - extractIdx) < 4 && isCtx && !isShift && HasPhraseLogicStart[fullInput[start + extractIdx]]) {
+                                    string pTarget; int pLen;
+                                    if (TryApplyPhraseLogic(extractIdx, start, len, fullInput, ref localReplaceCount, out pTarget, out pLen)) {
+                                        hasReplacements = true;
+                                        if (extractIdx > lastMatchEnd) sb.Append(fullInput, start + lastMatchEnd, extractIdx - lastMatchEnd);
+                                        sb.Append(pTarget);
+                                        extractIdx += pLen;
+                                        lastMatchEnd = extractIdx;
+                                        continue;
                                     }
                                 }
 
-                                if (foundALen > 1 && longestMatchLen >= 4 && longestMatchLen > foundALen) foundALen = 0;
+                                // 🗡️ 真・視界邏輯介入 (零分配加速)
+                                int _wLen = nxt - extractIdx;
 
-                                if (foundALen > 1) {
-                                    int vIdx = i + foundALen - 1; 
-                                    int vWordLen = 0; // 改紀錄長度，不產生 String
-                                    int vk = vIdx + 1; 
-                                    TrieNode vN = rootNodes[input[vIdx]];
-
-                                    while (vk < len) {
-                                        if (vN != null && vN.Children != null) {
-                                            TrieNode nextVN;
-                                            if (vN.Children.TryGetValue(input[vk], out nextVN)) vN = nextVN; else vN = null;
-                                        } else vN = null;
-
-                                        int currentSubLen = vk - vIdx + 1;
-                                        // 直接檢查節點屬性，不再呼叫 VisionVocabs.Contains(sub)
-                                        if (vN != null && ((vN.Value != null) || vN.IsVisionVocab)) vWordLen = currentSubLen; 
-
-                                        if (vN == null && currentSubLen > 6) break;
-                                        vk++;
+                                // 用 IsAnchorStart 擋掉不是錨點的詞
+                                if (VisionAnchors != null && VisionAnchors.Count > 0 && _wLen > 1 && IsAnchorStart[fullInput[start + extractIdx]]) 
+                                {
+                                    // 第一段拔刀：偵測到定錨點 (純字典樹判定，0 Allocation)
+                                    bool isAnchor = false;
+                                    TrieNode aNode = rootNodes[fullInput[start + extractIdx]];
+                                    if (aNode != null) {
+                                        for (int k = 1; k < _wLen; k++) {
+                                            TrieNode nextN = null;
+                                            if (aNode.Children != null && aNode.Children.TryGetValue(fullInput[start + extractIdx + k], out nextN)) {
+                                                aNode = nextN;
+                                            } else { 
+                                                aNode = null; 
+                                                break; 
+                                            }
+                                        }
+                                        if (aNode != null && aNode.IsVisionAnchor) isAnchor = true;
                                     }
 
-                                    if (vWordLen > 0) {
-                                        bool stable = true; 
-                                        int dIdx = vIdx + vWordLen - 1; 
-                                        int dk = dIdx + 1; 
-                                        TrieNode dN = rootNodes[input[dIdx]];
+                                    if (isAnchor)
+                                    {
+                                        int visionIdx = extractIdx + _wLen - 1; // 站位在交界字
+                                        int visionWordLen = 0;
 
-                                        while (dk < len) {
-                                            if (dN != null && dN.Children != null) {
-                                                TrieNode nextDN;
-                                                if (dN.Children.TryGetValue(input[dk], out nextDN)) dN = nextDN; else dN = null;
-                                            } else dN = null;
+                                        // 向後掃描尋找強勢詞
+                                        int vk = visionIdx + 1;
+                                        TrieNode continuousNode = rootNodes[fullInput[start + visionIdx]];
 
-                                            int currentSubLen = dk - dIdx + 1;
-
-                                            if (dN != null && ((dN.Value != null) || dN.IsVisionVocab)) { stable = false; break; } 
-
-                                            if (dN == null && currentSubLen > 6) break;
-                                            dk++;
-                                        }
-
-                                        if (stable) {
-                                            int bLen = 1; 
-                                            TrieNode bN = rootNodes[input[i]];
-                                            if (bN != null) {
-                                                // 只找尋小於 foundALen - 1 的次長 Anchor
-                                                for (int k = 1; k < foundALen - 1; k++) {
-                                                    if (bN.Children != null && bN.Children.TryGetValue(input[i + k], out bN)) {
-                                                        if (bN.IsVisionAnchor) bLen = k + 1;
-                                                    } else break;
+                                        while (vk < len && (vk - visionIdx) <= 8)
+                                        {
+                                            if (continuousNode != null) 
+                                            {
+                                                TrieNode nextN = null;
+                                                if (continuousNode.Children != null && continuousNode.Children.TryGetValue(fullInput[start + vk], out nextN)) {
+                                                    continuousNode = nextN;
+                                                } else {
+                                                    continuousNode = null;
                                                 }
                                             }
 
-                                            longestMatchLen = bLen < 2 ? 1 : bLen;
+                                            int currentSubLen = vk - visionIdx + 1;
 
-                                            // 重新定位 Target
-                                            TrieNode tN = rootNodes[input[i]]; 
-                                            for (int k = 1; k < longestMatchLen; k++) {
-                                                if (tN.Children != null && tN.Children.TryGetValue(input[i + k], out tN)) {} else { tN = null; break; }
+                                            // 只要長度大於 1，且符合條件即鎖定
+                                            if (currentSubLen > 1 && continuousNode != null) 
+                                            {
+                                                if (continuousNode.Value != null || continuousNode.IsVisionVocab || continuousNode.IsVisionAnchor) 
+                                                {
+                                                    visionWordLen = currentSubLen; 
+                                                }
                                             }
-                                            longestMatchTarget = tN != null ? tN.Value : null;
+
+                                            // 核心斷鏈優化
+                                            if (continuousNode == null) break;
+
+                                            vk++;
+                                        }
+
+                                        // 第二段揮斬：穩定性檢查
+                                        if (visionWordLen > 1) 
+                                        {
+                                            bool isStable = true;
+                                            int stabIdx = visionIdx + visionWordLen - 1;
+
+                                            // 再次向後掃描：看有沒有更強的詞
+                                            int sk = stabIdx + 1;
+                                            TrieNode sNode = rootNodes[fullInput[start + stabIdx]];
+
+                                            while (sk < len && (sk - stabIdx) <= 8)
+                                            {
+                                                if (sNode != null) 
+                                                {
+                                                    TrieNode nextSN = null;
+                                                    if (sNode.Children != null && sNode.Children.TryGetValue(fullInput[start + sk], out nextSN)) 
+                                                    {
+                                                        sNode = nextSN;
+                                                        // 發現假象，收刀不砍
+                                                        if (sNode.IsVisionVocab) 
+                                                        {
+                                                            isStable = false; 
+                                                            break;
+                                                        }
+                                                    } 
+                                                    else 
+                                                    {
+                                                        sNode = null;
+                                                    }
+                                                }
+
+                                                // 斷鏈優化
+                                                if (sNode == null) break;
+
+                                                sk++;
+                                            }
+
+                                            if (isStable)
+                                            {
+                                                nxt = extractIdx + _wLen - 1;
+                                            }
                                         }
                                     }
                                 }
-                            }
 
-                            // ⚓ 語法邏輯 (精簡變數與極速判定版)
-                            if (isCtx && !isShift && longestMatchLen <= 1 && LogicDelegate != null && HasContextLogic[firstChar]) {
-                                string lRes = LogicDelegate((int)firstChar, start + i, fullInput);
-                                if (lRes != null) { 
-                                    longestMatchTarget = lRes; 
-                                    longestMatchLen = 1; 
+                                int wordLen = nxt - extractIdx;
+                                char firstChar = fullInput[start + extractIdx];
+
+                                string openccTarget = null;
+                                TrieNode node = rootNodes[firstChar];
+
+                                if (node != null) {
+                                    if (wordLen == 1) {
+                                        if (isCtx && !isShift && LogicDelegate != null && HasContextLogic[firstChar]) {
+                                            string logicResult = LogicDelegate((int)firstChar, start + extractIdx, fullInput);
+                                            if (logicResult != null) openccTarget = logicResult;
+                                        }
+                                        if (openccTarget == null && node.Value != null) {
+                                            openccTarget = node.Value;
+                                        }
+                                    } else {
+                                        TrieNode currNode = node;
+                                        for (int k = 1; k < wordLen; k++) {
+                                            TrieNode nextN;
+                                            if (currNode.Children != null && currNode.Children.TryGetValue(fullInput[start + extractIdx + k], out nextN)) {
+                                                currNode = nextN;
+                                            } else {
+                                                currNode = null; break;
+                                            }
+                                        }
+                                        if (currNode != null && currNode.Value != null) openccTarget = currNode.Value;
+                                    }
                                 }
-                            }
 
-                            if (longestMatchTarget != null) {
-                                // 原生判斷
-                                int matchLen = longestMatchLen < 1 ? 1 : longestMatchLen;
-                                int targetLen = longestMatchTarget.Length;
-                                bool isChanged = false;
-
-                                // 展開單字元比對
-                                if (targetLen != matchLen) {
-                                    isChanged = true;
-                                } else if (targetLen == 1) {
-                                    isChanged = longestMatchTarget[0] != input[i];
+                                // 次級貪婪匹配回退 (Fallback) 與 零分配優化
+                                string finalTarget = null;
+                                if (openccTarget != null) {
+                                    finalTarget = openccTarget;
                                 } else {
-                                    // 只有長度大於 1 的詞彙，才會進入迴圈
-                                    for (int k = 0; k < targetLen; k++) {
-                                        if (longestMatchTarget[k] != input[i + k]) { 
-                                            isChanged = true; 
-                                            break; 
+                                    int subK = 0;
+                                    fbSb.Length = 0; // 零分配
+
+                                    while (subK < wordLen) {
+                                        char ch = fullInput[start + extractIdx + subK];
+                                        int longestMatchLen = 0;
+                                        string longestMatchTarget = null;
+
+                                        TrieNode fNode = rootNodes[ch];
+                                        if (fNode != null) {
+                                            if (fNode.Value != null) {
+                                                longestMatchLen = 1;
+                                                longestMatchTarget = fNode.Value;
+                                            }
+                                            int scan = 1;
+                                            TrieNode temp = fNode;
+                                            while (subK + scan < wordLen) {
+                                                TrieNode nextN;
+                                                if (temp.Children == null || !temp.Children.TryGetValue(fullInput[start + extractIdx + subK + scan], out nextN)) break;
+                                                temp = nextN;
+                                                if (temp.Value != null) {
+                                                    longestMatchLen = scan + 1;
+                                                    longestMatchTarget = temp.Value;
+                                                }
+                                                scan++;
+                                            }
+                                        }
+
+                                        if (longestMatchLen <= 1 && isCtx && !isShift && LogicDelegate != null && HasContextLogic[ch]) {
+                                            string lRes = LogicDelegate((int)ch, start + extractIdx + subK, fullInput);
+                                            if (lRes != null) {
+                                                longestMatchTarget = lRes;
+                                                longestMatchLen = 1;
+                                            }
+                                        }
+
+                                        int matchLen = Math.Max(1, longestMatchLen);
+
+                                        if (longestMatchTarget != null) {
+                                            if (fbSb.Length == 0 && subK > 0) fbSb.Append(fullInput, start + extractIdx, subK);
+                                            fbSb.Append(longestMatchTarget);
+                                        } else if (fbSb.Length > 0) {
+                                            fbSb.Append(ch);
+                                        }
+
+                                        subK += matchLen;
+                                    }
+                                    if (fbSb.Length > 0) finalTarget = fbSb.ToString();
+                                }
+
+                                // 零分配比較邏輯
+                                if (finalTarget != null) {
+                                    bool isChanged = false;
+                                    if (finalTarget.Length != wordLen) isChanged = true;
+                                    else { 
+                                        for (int k = 0; k < wordLen; k++) {
+                                            if (finalTarget[k] != fullInput[start + extractIdx + k]) { isChanged = true; break; } 
+                                        } 
+                                    }
+
+                                    if (isChanged) {
+                                        hasReplacements = true;
+                                        localReplaceCount++;
+                                        if (extractIdx > lastMatchEnd) sb.Append(fullInput, start + lastMatchEnd, extractIdx - lastMatchEnd);
+                                        sb.Append(finalTarget);
+                                        lastMatchEnd = nxt;
+                                    }
+                                }
+                                extractIdx = nxt;
+                            }
+
+                        } else {
+                            // 原本的貪婪最長匹配轉換 (非結巴模式)
+                            while (i < len) {
+                                while (i + 3 < len && (fullInput[start + i] | fullInput[start + i + 1] | fullInput[start + i + 2] | fullInput[start + i + 3]) < fastSkipLimit) i += 4;
+                                while (i < len && fullInput[start + i] < fastSkipLimit) i++; if (i >= len) break; 
+                                char firstChar = fullInput[start + i];
+
+                                TrieNode node = rootNodes[firstChar];
+                                int longestMatchLen = 0; string longestMatchTarget = null;
+
+                                if (node != null) {
+                                    if (node.Value != null) { longestMatchLen = 1; longestMatchTarget = node.Value; }
+                                    int j = i + 1; TrieNode curr = node;
+                                    while (j < len) {
+                                        TrieNode nextNode;
+                                        if (curr.Children == null || !curr.Children.TryGetValue(fullInput[start + j], out nextNode)) break;
+                                        curr = nextNode;
+                                        if (curr.Value != null) { longestMatchLen = j - i + 1; longestMatchTarget = curr.Value; }
+                                        j++;
+                                    }
+                                }
+
+                                // 檢查 PhraseLogic
+                                if (longestMatchLen < 4 && isCtx && !isShift && HasPhraseLogicStart[firstChar]) {
+                                    string pTarget; int pLen;
+                                    if (TryApplyPhraseLogic(i, start, len, fullInput, ref localReplaceCount, out pTarget, out pLen)) {
+                                        hasReplacements = true;
+                                        if (i > lastMatchEnd) sb.Append(fullInput, start + lastMatchEnd, i - lastMatchEnd);
+                                        sb.Append(pTarget);
+                                        i += pLen;
+                                        lastMatchEnd = i;
+                                        continue;
+                                    }
+                                }
+
+                                // 🔭 視界邏輯 (0 Allocation 極速版)
+                                if (isVis && !isShift && longestMatchLen > 1) {
+                                    int foundALen = 0;
+                                    TrieNode aN = rootNodes[fullInput[start + i]];
+                                    if (aN != null) {
+                                        if (aN.IsVisionAnchor) foundALen = 1;
+                                        // 往前探勘
+                                        for (int k = 1; k < longestMatchLen; k++) {
+                                            if (aN.Children != null && aN.Children.TryGetValue(fullInput[start + i + k], out aN)) {
+                                                if (aN.IsVisionAnchor) foundALen = k + 1;
+                                            } else break;
+                                        }
+                                    }
+
+                                    if (foundALen > 1 && longestMatchLen >= 4 && longestMatchLen > foundALen) foundALen = 0;
+
+                                    if (foundALen > 1) {
+                                        int vIdx = i + foundALen - 1; 
+                                        int vWordLen = 0; // 改紀錄長度，不產生 String
+                                        int vk = vIdx + 1; 
+                                        TrieNode vN = rootNodes[fullInput[start + vIdx]];
+
+                                        while (vk < len) {
+                                            if (vN != null && vN.Children != null) {
+                                                TrieNode nextVN;
+                                                if (vN.Children.TryGetValue(fullInput[start + vk], out nextVN)) vN = nextVN; else vN = null;
+                                            } else vN = null;
+
+                                            int currentSubLen = vk - vIdx + 1;
+                                            // 直接檢查節點屬性，不再呼叫 VisionVocabs.Contains(sub)
+                                            if (vN != null && ((vN.Value != null) || vN.IsVisionVocab)) vWordLen = currentSubLen; 
+
+                                            if (vN == null && currentSubLen > 6) break;
+                                            vk++;
+                                        }
+
+                                        if (vWordLen > 0) {
+                                            bool stable = true; 
+                                            int dIdx = vIdx + vWordLen - 1; 
+                                            int dk = dIdx + 1; 
+                                            TrieNode dN = rootNodes[fullInput[start + dIdx]];
+
+                                            while (dk < len) {
+                                                if (dN != null && dN.Children != null) {
+                                                    TrieNode nextDN;
+                                                    if (dN.Children.TryGetValue(fullInput[start + dk], out nextDN)) dN = nextDN; else dN = null;
+                                                } else dN = null;
+
+                                                int currentSubLen = dk - dIdx + 1;
+
+                                                if (dN != null && ((dN.Value != null) || dN.IsVisionVocab)) { stable = false; break; } 
+
+                                                if (dN == null && currentSubLen > 6) break;
+                                                dk++;
+                                            }
+
+                                            if (stable) {
+                                                int bLen = 1; 
+                                                TrieNode bN = rootNodes[fullInput[start + i]];
+                                                if (bN != null) {
+                                                    // 只找尋小於 foundALen - 1 的次長 Anchor
+                                                    for (int k = 1; k < foundALen - 1; k++) {
+                                                        if (bN.Children != null && bN.Children.TryGetValue(fullInput[start + i + k], out bN)) {
+                                                            if (bN.IsVisionAnchor) bLen = k + 1;
+                                                        } else break;
+                                                    }
+                                                }
+
+                                                longestMatchLen = bLen < 2 ? 1 : bLen;
+
+                                                // 重新定位 Target
+                                                TrieNode tN = rootNodes[fullInput[start + i]]; 
+                                                for (int k = 1; k < longestMatchLen; k++) {
+                                                    if (tN.Children != null && tN.Children.TryGetValue(fullInput[start + i + k], out tN)) {} else { tN = null; break; }
+                                                }
+                                                longestMatchTarget = tN != null ? tN.Value : null;
+                                            }
                                         }
                                     }
                                 }
 
-                                if (isChanged) {
-                                    localReplaceCount++;
-                                    if (sb == null) {
-                                        // 預留 1.56% 的緩衝 (1/64)
-                                        sb = new StringBuilder(len + (len >> 6));
+                                // ⚓ 語法邏輯 (精簡變數與極速判定版)
+                                if (isCtx && !isShift && longestMatchLen <= 1 && LogicDelegate != null && HasContextLogic[firstChar]) {
+                                    string lRes = LogicDelegate((int)firstChar, start + i, fullInput);
+                                    if (lRes != null) { 
+                                        longestMatchTarget = lRes; 
+                                        longestMatchLen = 1; 
+                                    }
+                                }
+
+                                if (longestMatchTarget != null) {
+                                    // 原生判斷
+                                    int matchLen = longestMatchLen < 1 ? 1 : longestMatchLen;
+                                    int targetLen = longestMatchTarget.Length;
+                                    bool isChanged = false;
+
+                                    // 展開單字元比對
+                                    if (targetLen != matchLen) {
+                                        isChanged = true;
+                                    } else if (targetLen == 1) {
+                                        isChanged = longestMatchTarget[0] != fullInput[start + i];
+                                    } else {
+                                        // 只有長度大於 1 的詞彙，才會進入迴圈
+                                        for (int k = 0; k < targetLen; k++) {
+                                            if (longestMatchTarget[k] != fullInput[start + i + k]) { 
+                                                isChanged = true; 
+                                                break; 
+                                            }
+                                        }
                                     }
 
-                                    if (i > lastMatchEnd) sb.Append(input, lastMatchEnd, i - lastMatchEnd);
-                                    sb.Append(longestMatchTarget);
-
-                                    lastMatchEnd = i + matchLen;
-                                } 
-                                i += matchLen;
-                            } else {
-                                i++;
+                                    if (isChanged) {
+                                        hasReplacements = true;
+                                        localReplaceCount++;
+                                        if (i > lastMatchEnd) sb.Append(fullInput, start + lastMatchEnd, i - lastMatchEnd);
+                                        sb.Append(longestMatchTarget);
+                                        lastMatchEnd = i + matchLen;
+                                    } 
+                                    i += matchLen;
+                                } else {
+                                    i++;
+                                }
                             }
                         }
-                    }
 
-                    // 收尾處理：確保字串最終正確合併
-                    if (sb == null) {
-                        chunks[tIdx] = input;
-                    } else {
-                        if (lastMatchEnd < len) sb.Append(input, lastMatchEnd, len - lastMatchEnd);
-                        chunks[tIdx] = sb.ToString();
-                    }
-                    System.Threading.Interlocked.Add(ref totalReplaceCount, localReplaceCount);
-                });
+                        if (!hasReplacements) {
+                            chunksOut[tIdx] = fullInput.Substring(start, len);
+                        } else {
+                            if (lastMatchEnd < len) sb.Append(fullInput, start + lastMatchEnd, len - lastMatchEnd);
+                            chunksOut[tIdx] = sb.ToString();
+                        }
+                        System.Threading.Interlocked.Add(ref totalReplaceCount, localReplaceCount);
 
-                Clipboard.SetText(string.Join("", chunks));
+                        return state; 
+                    },
+
+                    (ThreadState state) => {
+                        if (state != null) {
+                            if (state.sb != null) state.sb.Length = 0;
+                            if (state.fbSb != null) state.fbSb.Length = 0;
+                        }
+                    }
+                );
+
+                Clipboard.SetText(string.Join("", chunksOut));
                 return totalReplaceCount;
 
             } catch (Exception ex) { 
@@ -1194,9 +1606,8 @@ namespace MyTools {
                 c.Value = v;
                 c.OriginalKey = k; // 紀錄原始詞條
             }
-            if (logFreq != -18.0) c.LogFreq = logFreq; // 確保只更新非預設值的權重
+            if (logFreq != -18.0) c.LogFreq = logFreq; // 只更新非預設值的權重
 
-            // 注入標記
             if ((flag & 1) != 0) c.IsVisionAnchor = true;
             if ((flag & 2) != 0) c.IsVisionVocab = true;
             if ((flag & 4) != 0) c.IsContextAnchor = true;

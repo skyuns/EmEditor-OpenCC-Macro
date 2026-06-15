@@ -1,15 +1,15 @@
 ﻿#language="JScript"
 
-// Project: OpenCC for EmEditor Macro v0.40 BoostCVT
+// Project: OpenCC for EmEditor Macro v0.42 BoostCVT
 // Author: skyuns (https://github.com/skyuns/EmEditor-OpenCC-Macro 備援: https://gitcode.com/skyuns/EmEditor-OpenCC-Macro)
 // Purpose: 中介加速腳本，負責執行智慧切塊並呼叫 BoostCVT 增壓引擎，全程透過剪貼簿進行資料交換，以自動變速方式進行大規模文字的多執行緒高速繁簡轉換。
 // Note: 加速組件為選配項目，僅在大規模文字且組件存在時啟動。使用者可視需求自由部署，只需 EXE 或 DLL 其中一種即可；使用時須經由 .jsee 腳本驅動，不支援獨立運作。
 
 // [實驗性 Turbo 效能模式] true: 啟動; false: 關閉；啟用時，透過 EmEditor 內的 document.selection.Copy() 與 Paste() 指令機制，效能可提升約 20%~30%。
-var Turbo_MODE = false;
+var Turbo_MODE = true;
 
 // [進度顯示設定] true: 6 千萬字以上檔案使用輸出列; false: 一律使用工具提示。
-var OutputBar_Progress = false;
+var OutputBar_Progress = true;
 
 var wsh = new ActiveXObject("WScript.Shell");
 var fso = new ActiveXObject("Scripting.FileSystemObject");
@@ -22,7 +22,7 @@ var msgModeNameTC = "繁轉簡";
 var msgModeNameSC = "繁转简";
 var msgModeNameEN = "T2S";
 
-// 讀取剪貼簿的參數 (格式: BoostCVT_CONFIG_TOKEN|模式|主巨集路徑|模擬|語法|視界|外部詞典|Jieba開關|HMM上限|擴充詞開關)
+// 讀取剪貼簿的參數 (格式: BoostCVT_CONFIG_TOKEN|模式|主巨集路徑|模擬|語法|視界|外部詞典|Jieba開關|HMM上限|擴充詞開關|豆腐字擴充開關)
 var mode = "T2S";
 var isCtx = "1";
 var isVis = "1";
@@ -43,29 +43,42 @@ if (configData && configData.indexOf("BoostCVT_LOAD_DICT|") === 0) {
     var jseePath = parts[2];
     var needJieba = (parts.length > 3 && parts[3] === "1");
     var isPhraseExpEnabled = (parts.length > 4 ? parts[4] === "1" : true);
+    // 接收豆腐字擴充狀態
+    var CharactersExt = (parts.length > 5 ? parts[5] === "1" : false);
     var dictDir = fso.BuildPath(scriptDir, "dictionary");
 
     // 1. 定義映射矩陣 (與 C# 同步)
     var fPhrase = "", fChar = "", fVariant = "TWVariants.txt", fPhraseExp = "", fException = "";
+    var fTWVariantsPhrases = "TWVariantsPhrases.txt"; // 新增 TWVariantsPhrases
+
     if (dictMode === "T2S") { fPhrase = "TSPhrases.txt"; fChar = "TSCharacters.txt"; fPhraseExp = "T2SrawPhraseExpandedData.txt"; fException = "T2SrawExceptionData.txt"; }
     else if (dictMode === "S2T" || dictMode === "S2TE") {
         fPhrase = "STPhrases.txt"; fChar = "STCharacters.txt";
         fPhraseExp = (dictMode === "S2TE") ? "S2TErawPhraseExpandedData.txt" : "S2TrawPhraseExpandedData.txt";
         fException = "S2TrawExceptionData.txt";
     }
-    else if (dictMode === "S2TWP") { fPhrase = "TWPhrases.txt"; fPhraseExp = "S2TWPrawPhraseExpandedData.txt"; fVariant = ""; }
-    else if (dictMode === "TW2SP") { fPhrase = "TWPhrasesRev.txt"; fPhraseExp = "TW2SPrawPhraseExpandedData.txt"; fVariant = ""; }
+    else if (dictMode === "S2TWP") { fPhrase = "TWPhrases.txt"; fPhraseExp = "S2TWPrawPhraseExpandedData.txt"; fVariant = ""; fTWVariantsPhrases = "";}
+    else if (dictMode === "TW2SP") { fPhrase = "TWPhrasesRev.txt"; fPhraseExp = "TW2SPrawPhraseExpandedData.txt"; fVariant = ""; fTWVariantsPhrases = "";}
 
     // 結巴相關檔案路徑與優先級判定
     var dictBigPath = fso.BuildPath(dictDir, "dict.txt.big");
-    var targetJiebaName = fso.FileExists(dictBigPath) ? "dict.txt.big" : "jieba.dict.utf8";
+    var dictSmallPath = fso.BuildPath(dictDir, "jieba.dict.utf8");
+    var targetJiebaName = "";
+
+    if (needJieba) {
+        if (dictMode === "S2T" || dictMode === "S2TE") {
+            targetJiebaName = fso.FileExists(dictSmallPath) ? "jieba.dict.utf8" : (fso.FileExists(dictBigPath) ? "dict.txt.big" : "");
+        } else {
+            targetJiebaName = fso.FileExists(dictBigPath) ? "dict.txt.big" : (fso.FileExists(dictSmallPath) ? "jieba.dict.utf8" : "");
+        }
+    }
     var userDictName = "user.dict.utf8";
     var hmmModelName = "hmm_model.utf8";
 
     // 2. 檢查日期
     var jseeDate = fso.FileExists(jseePath) ? fso.GetFile(jseePath).DateLastModified : new Date(0);
     var hasNew = false;
-    var checkList = [fPhrase, fChar, fVariant, fPhraseExp, fException, targetJiebaName, userDictName, hmmModelName];
+    var checkList = [fPhrase, fChar, fVariant, fPhraseExp, fException, targetJiebaName, userDictName, hmmModelName, fTWVariantsPhrases];
 
     for (var i = 0; i < checkList.length; i++) {
         var fName = checkList[i];
@@ -102,6 +115,49 @@ if (configData && configData.indexOf("BoostCVT_LOAD_DICT|") === 0) {
                     stream.LoadFromFile(p);
                     var txt = stream.ReadText();
                     stream.Close();
+
+                    if (typeof CharactersExt !== "undefined" && CharactersExt === true && name.indexOf("Characters") !== -1) {
+                        var lines = txt.split("\n");
+                        var lastLineWasTofuRisk = false;
+
+                        for (var j = 0; j < lines.length; j++) {
+                            var line = lines[j];
+                            if (!line || line.charAt(0) === "\r") continue;
+
+                            // 偵測豆腐字註解
+                            if (line.indexOf("# @tofu-risk:") !== -1) {
+                                lastLineWasTofuRisk = true;
+                                continue;
+                            }
+
+                            if (line.charAt(0) === "#") {
+                                lastLineWasTofuRisk = false;
+                                continue;
+                            }
+
+                            // 處理緊跟在 @tofu-risk 後面的映射行
+                            if (lastLineWasTofuRisk) {
+                                var tabIndex = line.indexOf("\t");
+                                if (tabIndex !== -1) {
+                                    var key = line.substring(0, tabIndex);
+                                    var rest = line.substring(tabIndex + 1);
+                                    var hasCR = (rest.slice(-1) === "\r");
+                                    if (hasCR) rest = rest.slice(0, -1);
+
+                                    var values = rest.split(" ");
+                                    // 若第一個字等於 key，則取下一個字 (過濾掉預設字)
+                                    if (values.length > 0 && values[0] === key) {
+                                        values.shift();
+                                    }
+
+                                    lines[j] = key + "\t" + values.join(" ") + (hasCR ? "\r" : "");
+                                }
+                                lastLineWasTofuRisk = false;
+                            }
+                        }
+                        txt = lines.join("\n");
+                    }
+
                     return txt;
                 } catch(e) { return ""; }
             }
@@ -109,7 +165,7 @@ if (configData && configData.indexOf("BoostCVT_LOAD_DICT|") === 0) {
             // 如果檔案日期不夠新，回傳空字串，讓 V8 觸發 Fallback
             return "";
         }
-        // 封裝 8 個區塊
+
         var outData = [
             readTxt(fPhrase, false),
             readTxt(fChar, false),
@@ -119,7 +175,8 @@ if (configData && configData.indexOf("BoostCVT_LOAD_DICT|") === 0) {
             // 只有 needJieba 開啟時，才允許讀取結巴詞典
             (needJieba ? readTxt(targetJiebaName, mustReadJieba) : ""),
             (needJieba ? readTxt(userDictName, mustReadUser) : ""),
-            (needJieba ? readTxt(hmmModelName, mustReadHmm) : "")
+            (needJieba ? readTxt(hmmModelName, mustReadHmm) : ""),
+            readTxt(fTWVariantsPhrases, false) // 第 9 區塊
         ];
         clipboardData.setData("Text", outData.join("|||BLOCK_SEP|||"));
     } else {
@@ -130,9 +187,10 @@ if (configData && configData.indexOf("BoostCVT_LOAD_DICT|") === 0) {
 
 // 🚜 任務 B：重裝變速箱 (大規模文字轉換邏輯)
 var isPhraseExp = "1";
+var isCharExt = "0";
 if (configData && configData.indexOf("BoostCVT_CONFIG_TOKEN|") === 0) {
     var parts = configData.split("|");
-    // 10 段參數：TOKEN, Mode, Path, Sim, Ctx, Vis, ExtDict, Jieba, HMMLimit, PhraseExp
+    // 11 段參數：TOKEN, Mode, Path, Sim, Ctx, Vis, ExtDict, Jieba, HMMLimit, PhraseExp, CharactersExt
     if (parts.length >= 7) {
         mode = parts[1];
         oldMacroPath = parts[2];
@@ -144,6 +202,7 @@ if (configData && configData.indexOf("BoostCVT_CONFIG_TOKEN|") === 0) {
             hmmLimit = parts[8];
         }
         if (parts.length >= 10 && parts[9] === "false") isPhraseExp = "0";
+        if (parts.length >= 11 && parts[10] === "true") isCharExt = "1";
 
         switch(mode) {
             case "T2S":
@@ -204,11 +263,26 @@ function main() {
         alert(_L("No text selected.", "未選取文字", "未选中文本"));
         return;
     }
+
+    var original_scrollX = scrollX;
+    var original_scrollY = scrollY;
+
     var startTime = Date.now();
+    var modeDesc = Turbo_MODE ? " Turbo" : "";
+    var jseeDesc = (isJieba === "1") ? "Jieba applied, " : "";
+
     if (isJieba === "1") {
-        status = _L("⏳ BoostCVT Engine Converting (Jieba applied, Clipboard-Based)...", "⏳ BoostCVT 增壓引擎轉換中 (使用結巴分詞，剪貼簿方式)...", "⏳ BoostCVT 增压引擎转换中 (使用结巴分词，剪贴板方式)...");
+        status = _L(
+            "⏳ BoostCVT Engine Converting (" + jseeDesc + "Clipboard-Based" + modeDesc + ")...",
+            "⏳ BoostCVT 增壓引擎轉換中 (使用結巴分詞，剪貼簿方式" + modeDesc + ")...",
+            "⏳ BoostCVT 增压引擎转换中 (使用结巴分词，剪贴板方式" + modeDesc + ")..."
+        );
     } else {
-        status = _L("⏳ BoostCVT Engine Converting (Clipboard-Based)...", "⏳ BoostCVT 增壓引擎轉換中 (使用剪貼簿方式)...", "⏳ BoostCVT 增压引擎转换中 (使用剪贴板方式)...");
+        status = _L(
+            "⏳ BoostCVT Engine Converting (Clipboard-Based" + modeDesc + ")...",
+            "⏳ BoostCVT 增壓引擎轉換中 (使用剪貼簿方式" + modeDesc + ")...",
+            "⏳ BoostCVT 增压引擎转换中 (使用剪贴板方式" + modeDesc + ")..."
+        );
     }
 
     // 1. 備份剪貼簿
@@ -225,9 +299,9 @@ function main() {
     var numChunks = 1;
     if (txtlen > 0) {
         // 彈性變速：根據字元數與 Turbo 模式自動調節單一區塊負荷量
-        var divisor = (Turbo_MODE && txtlen > 600000000) ? 357000000 : // Turbo 模式 (約 710MB)
-                      (txtlen > 360000000) ? 180600000 : // 高速檔 (約 360MB)
-                      (txtlen > 180000000) ? 90300000 : 63000000; // 中低速檔
+        var divisor = (Turbo_MODE && txtlen > 600000000) ? 420000000 : // Turbo 模式
+                      (txtlen > 360000000) ? 336000000 : // 高速檔
+                      (txtlen > 168000000) ? 168000000 : 84000000; // 中低速檔
         numChunks = Math.ceil(txtlen / divisor);
     } else {
         if (selectedLines <= 2000) {
@@ -303,7 +377,7 @@ function main() {
         var currentOrigTopY = topY;
         var lineOffset = 0;
         // 根據模式設定安全線
-        var SAFE_CHAR_LIMIT = Turbo_MODE ? 360000000 : 200000000;
+        var SAFE_CHAR_LIMIT = Turbo_MODE ? 422000000 : 338000000;
 
         // 如果字元數小於安全極限，不做動態收縮檢查
         var skipLengthCheck = (txtlen > 0 && txtlen <= SAFE_CHAR_LIMIT);
@@ -395,8 +469,8 @@ function main() {
             // 紀錄貼上前底部的 Y 座標 (用以計算精確偏移量)
             var yBeforePaste = sel.GetBottomPointY(eePosLogical);
 
-            // 第二階段封裝：加上 Threads 與 擴充詞開關
-            var dynamicFlags = configFlags + "|" + threadCount + "|" + isPhraseExp;
+            // 第二階段封裝：加上 Threads、擴充詞開關，以及豆腐字擴充開關
+            var dynamicFlags = configFlags + "|" + threadCount + "|" + isPhraseExp + "|" + isCharExt;
 
             var runCount = 0;
 
@@ -526,6 +600,10 @@ function main() {
     } finally {
         document.selection.SetAnchorPoint(eePosLogical, topX, topY);
         document.selection.SetActivePoint(eePosLogical, realBottomX, realBottomY, true);
+        try {
+            scrollX = original_scrollX;
+            scrollY = original_scrollY;
+        } catch(e) {}
 
         // 還原設定
         try {

@@ -146,9 +146,10 @@
     </div>
 
     <div class="options-bar">
-        <label><input type="checkbox" id="chkSimulate"> <span data-i18n="chkSimulate">🔍 啟用模擬比對 (與 Google 翻譯比對)</span></label>
+        <label><input type="checkbox" id="chkSimulate"> <span data-i18n="chkSimulate">🔍 模擬比對 (與 Google 翻譯比對)</span></label>
         <label><input type="checkbox" id="chkIgnoreTW"> <span data-i18n="chkIgnoreTW">🚫 忽略台灣字形 (僅標準繁簡)</span></label>
         <label><input type="checkbox" id="chkPure"> <span data-i18n="chkPure">🧹 純淨模式 (停用語法邏輯與擴充)</span></label>
+        <label><input type="checkbox" id="chkCharExt" checked> <span data-i18n="chkCharExt">⬜ 豆腐字擴充 (使用罕見字)</span></label>
     </div>
 
     <button class="btn-info" onclick="toggleModal(true)" title="About" data-i18n-title="aboutBtn">ℹ️</button>
@@ -211,7 +212,7 @@ const i18nDict = {
     'zh-TW': {
         mainTitle: "EmEditor OpenCC 繁簡轉換",
         btnLocal: "📂 載入本地 .jsee", btnS2T: "⚡ 簡轉繁", btnT2S: "⚡ 繁轉簡", btnS2TWP: "陸 ➔ 台", btnTW2SP: "台 ➔ 陸", btnS2TE: "簡繁擴充",
-        chkSimulate: "🔍 啟用模擬比對 (與 Google 翻譯比對)", chkIgnoreTW: "🚫 忽略台灣字形 (僅標準繁簡)", chkPure: "🧹 純淨模式 (停用語法邏輯與擴充)",
+        chkSimulate: "🔍 模擬比對 (與 Google 翻譯比對)", chkIgnoreTW: "🚫 忽略台灣字形 (僅標準繁簡)", chkPure: "🧹 純淨模式 (停用語法邏輯與擴充)", chkCharExt: "⬜ 豆腐字擴充 (使用罕見字)",
         titleInput: "📝 原始文字", titleOutput: "✨ 轉換結果", btnCopy: "複製", btnClear: "清除", btnDiff: "差異", aboutBtn: "關於本工具",
         modalTitle: "關於 EmEditor OpenCC 繁簡轉換",
         placeholderInput: "請在此輸入或貼上原始文字...", placeholderOutput: "轉換結果將顯示於此...",
@@ -220,7 +221,7 @@ const i18nDict = {
         modalHTML: `
             <p>本網頁用來模擬在 <strong>EmEditor 環境</strong>下的轉換邏輯。這是一個專為 EmEditor 打造的高效能繁簡轉換工具，核心轉換邏輯與詞庫基於強大的開源專案 OpenCC。</p>
             <div class="code-block">
-                <strong>Project:</strong> OpenCC for EmEditor v0.40<br>
+                <strong>Project:</strong> OpenCC for EmEditor v0.42<br>
                 <strong>Author:</strong> skyuns (<a href="https://github.com/skyuns/EmEditor-OpenCC-Macro" target="_blank">GitHub Repository</a> / <a href="https://gitcode.com/skyuns/EmEditor-OpenCC-Macro" target="_blank">GitCode Repository</a>)<br>
                 <strong>Data Source:</strong> OpenCC (<a href="https://github.com/BYVoid/OpenCC" target="_blank">BYVoid/OpenCC</a>)<br>
                 <strong>License:</strong> Apache License 2.0
@@ -229,7 +230,7 @@ const i18nDict = {
             <hr style="border: 0; border-top: 1px solid #EBEBEB; margin: 15px 0;">
             <strong>⚙️ 轉換流程：</strong>
             <ol style="margin-top: 8px; padding-left: 25px;">
-                <li>讀取主字典映射與例外清單</li><li>封裝構建高效能 <strong>Trie 字典樹</strong></li><li>啟動 <strong>Vision Logic (視界邏輯引擎)</strong> 深度探測</li><li>動態分段執行 FMM (正向最大匹配)</li><li>啟動 <strong>Context Logic (語意邏輯引擎)</strong> 處理歧義</li>
+                <li>讀取主字典映射與例外清單</li><li>封裝構建高效能 <strong>Trie 字典樹</strong></li><li>啟動 <strong>Vision Logic (視界邏輯引擎)</strong> 深度探測</li><li>動態分段執行 FMM (正向最大匹配)</li><li><strong>Phrase Logic (詞彙邏輯引擎)</strong> 短語前後文判定</li><li>啟動 <strong>Context Logic (語意邏輯引擎)</strong> 處理歧義</li>
             </ol>
             <div class="tagline">EmEditor-OpenCC-Macro: Precision Conversion, Contextual Perfection.</div>
             <div class="dev-by">Developed by skyuns</div>`
@@ -237,7 +238,7 @@ const i18nDict = {
     'zh-CN': {
         mainTitle: "EmEditor OpenCC 繁简转换",
         btnLocal: "📂 载入本地 .jsee", btnS2T: "⚡ 简转繁", btnT2S: "⚡ 繁转简", btnS2TWP: "陆 ➔ 台", btnTW2SP: "台 ➔ 陆", btnS2TE: "简繁扩充",
-        chkSimulate: "🔍 启用模拟比对 (与 Google 翻译比对)", chkIgnoreTW: "🚫 忽略台湾字形 (仅标准繁简)", chkPure: "🧹 纯净模式 (停用语法逻辑与扩充)",
+        chkSimulate: "🔍 模拟比对 (与 Google 翻译比对)", chkIgnoreTW: "🚫 忽略台湾字形 (仅标准繁简)", chkPure: "🧹 纯净模式 (停用语法逻辑与扩充)", chkCharExt: "⬜ 豆腐字扩充 (使用罕见字)",
         titleInput: "📝 原始文本", titleOutput: "✨ 转换结果", btnCopy: "复制", btnClear: "清除", btnDiff: "差异", aboutBtn: "关于本工具",
         modalTitle: "关于 EmEditor OpenCC 繁简转换",
         placeholderInput: "请在此输入或粘贴原始文本...", placeholderOutput: "转换结果将显示于此...",
@@ -246,7 +247,7 @@ const i18nDict = {
         modalHTML: `
             <p>本网页用来模拟在 <strong>EmEditor 环境</strong>下的转换逻辑。这是一个专为 EmEditor 打造的高效能繁简转换工具，核心转换逻辑与词库基于强大的开源项目 OpenCC。</p>
             <div class="code-block">
-                <strong>Project:</strong> OpenCC for EmEditor v0.40<br>
+                <strong>Project:</strong> OpenCC for EmEditor v0.42<br>
                 <strong>Author:</strong> skyuns (<a href="https://github.com/skyuns/EmEditor-OpenCC-Macro" target="_blank">GitHub Repository</a> / <a href="https://gitcode.com/skyuns/EmEditor-OpenCC-Macro" target="_blank">GitCode Repository</a>)<br>
                 <strong>Data Source:</strong> OpenCC (<a href="https://github.com/BYVoid/OpenCC" target="_blank">BYVoid/OpenCC</a>)<br>
                 <strong>License:</strong> Apache License 2.0
@@ -255,7 +256,7 @@ const i18nDict = {
             <hr style="border: 0; border-top: 1px solid #EBEBEB; margin: 15px 0;">
             <strong>⚙️ 转换流程：</strong>
             <ol style="margin-top: 8px; padding-left: 25px;">
-                <li>读取主字典映射与例外清单</li><li>封装构建高效能 <strong>Trie 字典树</strong></li><li>启动 <strong>Vision Logic (视界逻辑引擎)</strong> 深度探测</li><li>动态分段执行 FMM (正向最大匹配)</li><li>启动 <strong>Context Logic (语义逻辑引擎)</strong> 处理歧义</li>
+                <li>读取主字典映射与例外清单</li><li>封装构建高效能 <strong>Trie 字典树</strong></li><li>启动 <strong>Vision Logic (视界逻辑引擎)</strong> 深度探测</li><li>动态分段执行 FMM (正向最大匹配)</li><li><strong>Phrase Logic (词汇逻辑引擎)</strong> 短语前后文判定</li><li>启动 <strong>Context Logic (语义逻辑引擎)</strong> 处理歧义</li>
             </ol>
             <div class="tagline">EmEditor-OpenCC-Macro: Precision Conversion, Contextual Perfection.</div>
             <div class="dev-by">Developed by skyuns</div>`
@@ -263,7 +264,7 @@ const i18nDict = {
     'en': {
         mainTitle: "EmEditor OpenCC Conversion",
         btnLocal: "📂 Load Local .jsee", btnS2T: "⚡ S2T", btnT2S: "⚡ T2S", btnS2TWP: "CN ➔ TW", btnTW2SP: "TW ➔ CN", btnS2TE: "S2T Expanded",
-        chkSimulate: "🔍 Simulation Mode (Compare w/ Google)", chkIgnoreTW: "🚫 Ignore TW Variants", chkPure: "🧹 Pure Mode (Disable Context Logic)",
+        chkSimulate: "🔍 Simulation Mode (Compare w/ Google)", chkIgnoreTW: "🚫 Ignore TW Variants", chkPure: "🧹 Pure Mode (Disable Context Logic)", chkCharExt: "⬜ Characters Extension (Use Rare Variants)",
         titleInput: "📝 Original Text", titleOutput: "✨ Result", btnCopy: "Copy", btnClear: "Clear", btnDiff: "Diff", aboutBtn: "About",
         modalTitle: "About EmEditor OpenCC Conversion",
         placeholderInput: "Type or paste your text here...", placeholderOutput: "Conversion result will appear here...",
@@ -272,7 +273,7 @@ const i18nDict = {
         modalHTML: `
             <p>This page simulates the conversion logic within the <strong>EmEditor environment</strong>. It is a high-performance Chinese conversion tool designed for EmEditor, based on the OpenCC project.</p>
             <div class="code-block">
-                <strong>Project:</strong> OpenCC for EmEditor v0.40<br>
+                <strong>Project:</strong> OpenCC for EmEditor v0.42<br>
                 <strong>Author:</strong> skyuns (<a href="https://github.com/skyuns/EmEditor-OpenCC-Macro" target="_blank">GitHub Repository</a> / <a href="https://gitcode.com/skyuns/EmEditor-OpenCC-Macro" target="_blank">GitCode Repository</a>)<br>
                 <strong>Data Source:</strong> OpenCC (<a href="https://github.com/BYVoid/OpenCC" target="_blank">BYVoid/OpenCC</a>)<br>
                 <strong>License:</strong> Apache License 2.0
@@ -281,7 +282,7 @@ const i18nDict = {
             <hr style="border: 0; border-top: 1px solid #EBEBEB; margin: 15px 0;">
             <strong>⚙️ Conversion Process:</strong>
             <ol style="margin-top: 8px; padding-left: 25px;">
-                <li>Load mappings & exceptions</li><li>Build high-performance <strong>Trie Tree</strong></li><li>Initiate <strong>Vision Logic Engine</strong> deep probing</li><li>Execute FMM (Forward Maximum Matching)</li><li>Engage <strong>Context Logic Engine</strong> for disambiguation</li>
+                <li>Load mappings & exceptions</li><li>Build high-performance <strong>Trie Tree</strong></li><li>Initiate <strong>Vision Logic Engine</strong> deep probing</li><li>Execute FMM (Forward Maximum Matching)</li><li><strong>Phrase Logic Engine</strong> for surrounding evaluation</li><li>Engage <strong>Context Logic Engine</strong> for disambiguation</li>
             </ol>
             <div class="tagline">EmEditor-OpenCC-Macro: Precision Conversion, Contextual Perfection.</div>
             <div class="dev-by">Developed by skyuns</div>`
@@ -632,6 +633,9 @@ function executeMacroCode(code, filename) {
     // 網頁版不支援外部詞典與結巴分詞核心，設定關閉以防報錯
     code = code.replace(/const Use_Jieba\s*=\s*(true|false);/g, `const Use_Jieba = false;`);
     code = code.replace(/const Use_ExternalDict\s*=\s*(true|false);/g, `const Use_ExternalDict = false;`);
+    // 豆腐字擴充
+    const isCharExtChecked = document.getElementById('chkCharExt').checked;
+    code = code.replace(/const CharactersExt\s*=\s*(true|false);/g, `const CharactersExt = ${isCharExtChecked};`);
 
     const msgRun = currentLang === 'en' ? `⏳ Parsing engine starting, executing ${filename || 'macro'}...` : 
                   (currentLang === 'zh-CN' ? `⏳ 解析引擎启动中，执行 ${filename || '宏'}...` : `⏳ 解析引擎啟動中，執行 ${filename || '巨集'}...`);
