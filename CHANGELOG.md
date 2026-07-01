@@ -2,6 +2,35 @@
 
 所有關於 OpenCC for EmEditor 巨集的重大變更與更新都會記錄於此文件中。
 
+## [v0.43] - 雙端架構同步：CJK 相容字處理、微型規則解譯與原生交握優化 2026-07-01
+* **新增：跨端 CJK 相容字安全閘道(Compatibility Ideographs Normalization)**
+因 OpenCC 轉換行為調整，新版在轉換前，C# 與 v8 前端也同時切入安全預處理閘道。利用自製扁平化陣列與高效率的 Map 結構，在不破壞原文字串內碼索引的前提下，直接掃描 U+F900 ~ U+FAFF 區間與平面 2 的高位代理字。一旦命中，原地執行字元重組（利用極速陣列拼接），在文字送入 Trie 樹匹配前完成正規化，解決因相容字與標準字內碼不同，造成精確詞條無法命中或轉換後遺失字形。
+
+* **優化：自研語境邏輯解譯器與強型別虛擬化 (Custom Native Context Interpreter)**
+架構重構：取消 C# 端原有的 CodeDOM 執行期動態編譯，並解決 v8 端於運行時頻繁進行字串切割所產生的記憶體配置與垃圾回收（GC）壓力。新版改採自研的「微型規則解譯器（Interpreter）」架構，於準備階段提前將前端 JavaScript 複雜語法解析為強型別的內部規則物件。執行期轉換時，雙端直接以開銷極低的 for 迴圈搭配原生條件定址進行規則匹配，擺脫 .NET DOM 編譯器在初始化時可能觸發的權限問題與效能 regressions。
+  * 新版語法：*ContextLogicData = { "單字元金鑰": [ "條件判斷式 1 => 替換目標 1", "條件判斷式 2 => 替換目標 2", "default => 預設替換目標" ] };*
+  * 金鑰（Key）：必須是單一中文字元，也可以寫成十六進位的 Unicode 內碼字串
+
+* **優化：PhraseLogic 規則樹形預編譯與定向定錨 + 短語邊界防火牆與標點穿越阻斷(PhraseLogic Rule Tree Pre-compilation + Punctuation Barrier & Window Truncation)**
+新版對 PhraseLogic 實施「預編譯化」管理。在詞典加載階段，系統即直接將短語邏輯拆解並結構化，預先封裝至 Trie 樹根節點的專屬規則陣列中。同時擴充語法支援，允許解析複雜的後綴約束參數，並引入 @ 符號定向定錨機制，可精確指定並比對緊鄰於目標左方或右方的特定詞彙。在前後文短語邏輯（PhraseLogic）的滑動視窗探索中，也新增「標點符號防火牆」機制。雙端皆內建標點字元阻斷映射（包含 。，！\n 等格式符號）。
+  * 新版語法：*PhraseLogic = {"關鍵詞": "註解 替換目標 [左包含|!左排除] [右包含|!右排除] {視窗大小,標點穿越[0阻斷/1穿越],長度門檻}"}*
+  * @ 比對緊鄰於目標左側或右側的特定詞彙
+
+* **優化：C# P/Invoke 原生剪貼簿控制與 V8 局部變數快取 (C# P/Invoke Clipboard Fast Path & v8 Local Object Caching)**
+C# 後端引擎全面引入 Windows API（user32.dll 與 kernel32.dll）底層控制，改用 Win32 原生記憶體指針拷貝方式讀寫資料。此舉繞過了傳統 .NET 較為臃腫且易受執行緒干擾的 Clipboard.GetText() 與 SetText() 類別，在多執行緒（Parallel）高並發頻繁讀寫時，提升記憶體映射大文字時的傳遞效率。此外，v8 端在主要處理迴圈前，將全域 COM 物件快取為區域變數，大幅減少在 Windows 巨集宿主環境下跨程序訪問全域屬性的尋址開銷，降低篩選模式和不規則 CSV 大規模操作時的延遲，在這兩種 v8 模式下速度可提升約 40%~50%。
+
+* v0.43 轉換 1GB 文字檔的速度參考:
+<img width="1299" height="56" alt="image" src="https://github.com/user-attachments/assets/216c8636-3fad-41cc-96e4-718cf920e0ce" />
+
+<img width="1287" height="52" alt="image" src="https://github.com/user-attachments/assets/e2e9d7ac-ddb2-4571-8026-af24aa62adcf" />
+
+<img width="1304" height="56" alt="image" src="https://github.com/user-attachments/assets/d936fa61-6d1d-4f3d-838a-a886fa81e37e" />
+
+<img width="1302" height="54" alt="image" src="https://github.com/user-attachments/assets/393678ea-b24c-4580-b0bb-351309ccfe1f" />
+
+
+
+
 ## [v0.42] - 引擎底層重構：異構分組檢索與零分配記憶體管理 2026-06-14
 
 * **優化：C# 引擎微型斷句隔離與並發排程 (Micro-Chunking & Concurrent Scheduling)**
