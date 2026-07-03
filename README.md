@@ -110,7 +110,7 @@ My Macros/ (巨集存放目錄)
 | **opencc-1.4.0** | 命令行 (CLI) | 約 42 秒 | AI 推測 CJK 正規化與 RegionalPhrases 反向投影增加了處理時間。 |
 | **OpenCC.NET.GUI** | 圖形介面批量轉換 | 3 分 50 秒 | 適合多檔案處理，單一檔案操作較繁瑣。 |
 
-註: 0.42 版，T2S/S2T.jsee + BoostCVT 使用 Turbo 模式，轉換 1GB 不到 6 秒。
+註: 0.43 版，T2S/S2T.jsee + BoostCVT 使用 Turbo 模式，轉換 1GB 不到 6 秒。
 <img width="1304" height="56" alt="image" src="https://github.com/user-attachments/assets/d936fa61-6d1d-4f3d-838a-a886fa81e37e" />
 
 <img width="1302" height="54" alt="image" src="https://github.com/user-attachments/assets/393678ea-b24c-4580-b0bb-351309ccfe1f" />
@@ -231,4 +231,9 @@ My Macros/ (巨集存放目錄)
 
 * 5/20 備註：前幾天我又提交了一個 PR，然後我的帳號又被封了。一篇再正常不過的建議，也能觸發 GitHub 這種讓人無語的神邏輯，搞得我也懶得更新了。
 結果跟上次一樣，在 Gitcode 簡單更新之後， GitHub 隔天就道歉並恢復我的帳號，真是神奇。
+
+* 7/3 備註：一直忘了介紹，AI 寫的 [OpenCC 檔案轉換工具](./tool)。上面一段有提到，因為 OpenCC 很少有 GUI 板，以前大都是用指令操作，現在不得不讚嘆 AI 的發明，簡單的東西都可以自己捏出來，就讓 AI 寫了一個批次檔小工具，方便多了。
+  使用方式是將 cc.bat 批次檔，放在 bin 目錄底下，也就是跟 opencc.exe 放在一起，執行 cc，或是檔案總管點兩下就可以用了，會自動尋找並列出同目錄底下的 txt  檔案，以便轉換。理論上會自動偵測中英文來顯示操作介面。
+  
+
 
