@@ -1,6 +1,6 @@
 ﻿#language="JScript"
 
-// Project: OpenCC for EmEditor Macro v0.42 BoostCVT
+// Project: OpenCC for EmEditor Macro v0.43 BoostCVT
 // Author: skyuns (https://github.com/skyuns/EmEditor-OpenCC-Macro 備援: https://gitcode.com/skyuns/EmEditor-OpenCC-Macro)
 // Purpose: 中介加速腳本，負責執行智慧切塊並呼叫 BoostCVT 增壓引擎，全程透過剪貼簿進行資料交換，以自動變速方式進行大規模文字的多執行緒高速繁簡轉換。
 // Note: 加速組件為選配項目，僅在大規模文字且組件存在時啟動。使用者可視需求自由部署，只需 EXE 或 DLL 其中一種即可；使用時須經由 .jsee 腳本驅動，不支援獨立運作。

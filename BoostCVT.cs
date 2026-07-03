@@ -1,4 +1,4 @@
-﻿// Project: OpenCC for EmEditor Macro v0.42 BoostCVT
+﻿// Project: OpenCC for EmEditor Macro v0.43 BoostCVT
 // Author: skyuns (https://github.com/skyuns/EmEditor-OpenCC-Macro 備援: https://gitcode.com/skyuns/EmEditor-OpenCC-Macro)
 // Purpose: 多執行緒高速繁簡轉換 BoostCVT 增壓引擎，專為處理 EmEditor 大規模文字設計，支援結巴分詞、語法邏輯與動態詞典載入。
 // Note: BoostCVT 加速組件為選配項目，僅在大規模文字且組件存在時啟動。使用者可視需求自由部署，只需 EXE 或 DLL 其中一種即可；使用時須經由 .jsee 腳本驅動，不支援獨立運作。
@@ -16,20 +16,109 @@ using Microsoft.CSharp;
 using System.CodeDom.Compiler;
 using System.Diagnostics;
 using System.Threading;
+using System.Runtime.InteropServices;
 
 [assembly: AssemblyTitle("BoostCVT Engine")]
 [assembly: AssemblyDescription("High-performance Text Converter for EmEditor")]
 [assembly: AssemblyCompany("skyuns")]
 [assembly: AssemblyProduct("BoostCVT")]
 [assembly: AssemblyCopyright("Copyright © 2026 skyuns (天匀). All rights reserved.")]
-[assembly: AssemblyVersion("0.42.0.0")]
-[assembly: AssemblyFileVersion("0.42.0.0")]
+[assembly: AssemblyVersion("0.43.0.0")]
+[assembly: AssemblyFileVersion("0.43.0.0")]
 
 namespace MyTools {
     public class TextProcessor {
+
+    static System.Collections.Generic.Dictionary<int, int> FastReplaceMap = new System.Collections.Generic.Dictionary<int, int>();
+    static bool FastReplaceMapReady = false;
+
+    // NFC 正規化生成的對齊字串
+    static readonly string RawBmpHex = "8C48,66F4,8ECA,8CC8,6ED1,4E32,53E5,9F9C,9F9C,5951,91D1,5587,5948,61F6,7669,7F85,863F,87BA,88F8,908F,6A02,6D1B,70D9,73DE,843D,916A,99F1,4E82,5375,6B04,721B,862D,9E1E,5D50,6FEB,85CD,8964,62C9,81D8,881F,5ECA,6717,6D6A,72FC,90CE,4F86,51B7,52DE,64C4,6AD3,7210,76E7,8001,8606,865C,8DEF,9732,9B6F,9DFA,788C,797F,7DA0,83C9,9304,9E7F,8AD6,58DF,5F04,7C60,807E,7262,78CA,8CC2,96F7,58D8,5C62,6A13,6DDA,6F0F,7D2F,7E37,964B,52D2,808B,51DC,51CC,7A1C,7DBE,83F1,9675,8B80,62CF,6A02,8AFE,4E39,5BE7,6012,7387,7570,5317,78FB,4FBF,5FA9,4E0D,6CCC,6578,7D22,53C3,585E,7701,8449,8AAA,6BBA,8FB0,6C88,62FE,82E5,63A0,7565,4EAE,5169,51C9,6881,7CE7,826F,8AD2,91CF,52F5,5442,5973,5EEC,65C5,6FFE,792A,95AD,9A6A,9E97,9ECE,529B,66C6,6B77,8F62,5E74,6190,6200,649A,6F23,7149,7489,79CA,7DF4,806F,8F26,84EE,9023,934A,5217,52A3,54BD,70C8,88C2,8AAA,5EC9,5FF5,637B,6BAE,7C3E,7375,4EE4,56F9,5BE7,5DBA,601C,73B2,7469,7F9A,8046,9234,96F6,9748,9818,4F8B,79AE,91B4,96B8,60E1,4E86,50DA,5BEE,5C3F,6599,6A02,71CE,7642,84FC,907C,9F8D,6688,962E,5289,677B,67F3,6D41,6E9C,7409,7559,786B,7D10,985E,516D,622E,9678,502B,5D19,6DEA,8F2A,5F8B,6144,6817,7387,9686,5229,540F,5C65,6613,674E,68A8,6CE5,7406,75E2,7F79,88CF,88E1,91CC,96E2,533F,6EBA,541D,71D0,7498,85FA,96A3,9C57,9E9F,6797,6DCB,81E8,7ACB,7B20,7C92,72C0,7099,8B58,4EC0,8336,523A,5207,5EA6,62D3,7CD6,5B85,6D1E,66B4,8F3B,884C,964D,898B,5ED3,5140,55C0,0000,0000,585A,0000,6674,0000,0000,51DE,732A,76CA,793C,795E,7965,798F,9756,7CBE,7FBD,0000,8612,0000,8AF8,0000,0000,9038,90FD,0000,0000,0000,98EF,98FC,9928,9DB4,90DE,96B7,4FAE,50E7,514D,52C9,52E4,5351,559D,5606,5668,5840,58A8,5C64,5C6E,6094,6168,618E,61F2,654F,65E2,6691,6885,6D77,6E1A,6F22,716E,722B,7422,7891,793E,7949,7948,7950,7956,795D,798D,798E,7A40,7A81,7BC0,7DF4,7E09,7E41,7F72,8005,81ED,8279,8279,8457,8910,8996,8B01,8B39,8CD3,8D08,8FB6,9038,96E3,97FF,983B,6075,242EE,8218,0000,0000,4E26,51B5,5168,4F80,5145,5180,52C7,52FA,559D,5555,5599,55E2,585A,58B3,5944,5954,5A62,5B28,5ED2,5ED9,5F69,5FAD,60D8,614E,6108,618E,6160,61F2,6234,63C4,641C,6452,6556,6674,6717,671B,6756,6B79,6BBA,6D41,6EDB,6ECB,6F22,701E,716E,77A7,7235,72AF,732A,7471,7506,753B,761D,761F,76CA,76DB,76F4,774A,7740,78CC,7AB1,7BC0,7C7B,7D5B,7DF4,7F3E,8005,8352,83EF,8779,8941,8986,8996,8ABF,8AF8,8ACB,8B01,8AFE,8AED,8B39,8B8A,8D08,8F38,9072,9199,9276,967C,96E3,9756,97DB,97FF,980B,983B,9B12,9F9C,2284A,22844,233D5,3B9D,4018,4039,25249,25CD0,27ED3,9F43,9F8E";
+    static readonly string RawP2Hex = "4E3D,4E38,4E41,20122,4F60,4FAE,4FBB,5002,507A,5099,50E7,50CF,349E,2063A,514D,5154,5164,5177,2051C,34B9,5167,518D,2054B,5197,51A4,4ECC,51AC,51B5,291DF,51F5,5203,34DF,523B,5246,5272,5277,3515,52C7,52C9,52E4,52FA,5305,5306,5317,5349,5351,535A,5373,537D,537F,537F,537F,20A2C,7070,53CA,53DF,20B63,53EB,53F1,5406,549E,5438,5448,5468,54A2,54F6,5510,5553,5563,5584,5584,5599,55AB,55B3,55C2,5716,5606,5717,5651,5674,5207,58EE,57CE,57F4,580D,578B,5832,5831,58AC,214E4,58F2,58F7,5906,591A,5922,5962,216A8,216EA,59EC,5A1B,5A27,59D8,5A66,36EE,36FC,5B08,5B3E,5B3E,219C8,5BC3,5BD8,5BE7,5BF3,21B18,5BFF,5C06,5F53,5C22,3781,5C60,5C6E,5CC0,5C8D,21DE4,5D43,21DE6,5D6E,5D6B,5D7C,5DE1,5DE2,382F,5DFD,5E28,5E3D,5E69,3862,22183,387C,5EB0,5EB3,5EB6,5ECA,2A392,5EFE,22331,22331,8201,5F22,5F22,38C7,232B8,261DA,5F62,5F6B,38E3,5F9A,5FCD,5FD7,5FF9,6081,393A,391C,6094,226D4,60C7,6148,614C,614E,614C,617A,618E,61B2,61A4,61AF,61DE,61F2,61F6,6210,621B,625D,62B1,62D4,6350,22B0C,633D,62FC,6368,6383,63E4,22BF1,6422,63C5,63A9,3A2E,6469,647E,649D,6477,3A6C,654F,656C,2300A,65E3,66F8,6649,3B19,6691,3B08,3AE4,5192,5195,6700,669C,80AD,43D9,6717,671B,6721,675E,6753,233C3,3B49,67FA,6785,6852,6885,2346D,688E,681F,6914,3B9D,6942,69A3,69EA,6AA8,236A3,6ADB,3C18,6B21,238A7,6B54,3C4E,6B72,6B9F,6BBA,6BBB,23A8D,21D0B,23AFA,6C4E,23CBC,6CBF,6CCD,6C67,6D16,6D3E,6D77,6D41,6D69,6D78,6D85,23D1E,6D34,6E2F,6E6E,3D33,6ECB,6EC7,23ED1,6DF9,6F6E,23F5E,23F8E,6FC6,7039,701E,701B,3D96,704A,707D,7077,70AD,20525,7145,24263,719C,243AB,7228,7235,7250,24608,7280,7295,24735,24814,737A,738B,3EAC,73A5,3EB8,3EB8,7447,745C,7471,7485,74CA,3F1B,7524,24C36,753E,24C92,7570,2219F,7610,24FA1,24FB8,25044,3FFC,4008,76F4,250F3,250F2,25119,25133,771E,771F,771F,774A,4039,778B,4046,4096,2541D,784E,788C,78CC,40E3,25626,7956,2569A,256C5,798F,79EB,412F,7A40,7A4A,7A4F,2597C,25AA7,25AA7,7AEE,4202,25BAB,7BC6,7BC9,4227,25C80,7CD2,42A0,7CE8,7CE3,7D00,25F86,7D63,4301,7DC7,7E02,7E45,4334,26228,26247,4359,262D9,7F7A,2633E,7F95,7FFA,8005,264DA,26523,8060,265A8,8070,2335F,43D5,80B2,8103,440B,813E,5AB5,267A7,267B5,23393,2339C,8201,8204,8F9E,446B,8291,828B,829D,52B3,82B1,82B3,82BD,82E6,26B3C,82E5,831D,8363,83AD,8323,83BD,83E7,8457,8353,83CA,83CC,83DC,26C36,26D6B,26CD5,452B,84F1,84F3,8516,273CA,8564,26F2C,455D,4561,26FB1,270D2,456B,8650,865C,8667,8669,86A9,8688,870E,86E2,8779,8728,876B,8786,45D7,87E1,8801,45F9,8860,8863,27667,88D7,88DE,4635,88FA,34BB,278AE,27966,46BE,46C7,8AA0,8AED,8B8A,8C55,27CA8,8CAB,8CC1,8D1B,8D77,27F2F,20804,8DCB,8DBC,8DF0,208DE,8ED4,8F38,285D2,285ED,9094,90F1,9111,2872E,911B,9238,92D7,92D8,927C,93F9,9415,28BFA,958B,4995,95B7,28D77,49E6,96C3,5DB2,9723,29145,2921A,4A6E,4A76,97E0,2940A,4AB2,29496,980B,980B,9829,295B6,98E2,4B33,9929,99A7,99C2,99FE,4BCE,29B30,9B12,9C40,9CFD,4CCE,4CED,9D67,2A0CE,4CF8,2A105,2A20E,2A291,9EBB,4D56,9EF9,9EFE,9F05,9F0F,9F16,9F3B,2A600";
+
+    static void InitializeReplaceMap() {
+        if (FastReplaceMapReady) return;
+
+        // 解析 BMP 平面資料 (從 0xF900 開始)
+        string[] bmpItems = RawBmpHex.Split(',');
+        for (int i = 0; i < bmpItems.Length; i++) {
+            string item = bmpItems[i];
+            if (item == "0000" || string.IsNullOrEmpty(item)) continue;
+            int originalCodePoint = 0xF900 + i;
+            int targetCodePoint = System.Convert.ToInt32(item, 16);
+
+            FastReplaceMap[originalCodePoint] = targetCodePoint;
+        }
+
+        // 解析 Plane 2 平面資料 (從 0x2F800 開始)
+        string[] p2Items = RawP2Hex.Split(',');
+        for (int i = 0; i < p2Items.Length; i++) {
+            string item = p2Items[i];
+            if (item == "0000" || string.IsNullOrEmpty(item)) continue;
+            int originalCodePoint = 0x2F800 + i;
+            int targetCodePoint = System.Convert.ToInt32(item, 16);
+
+            FastReplaceMap[originalCodePoint] = targetCodePoint;
+        }
+
+        FastReplaceMapReady = true;
+    }
+
+
+        [DllImport("user32.dll", SetLastError = true)]
+        static extern bool OpenClipboard(IntPtr hWndNewOwner);
+        [DllImport("user32.dll")]
+        static extern bool CloseClipboard();
+        [DllImport("user32.dll")]
+        static extern IntPtr GetClipboardData(uint uFormat);
+        [DllImport("user32.dll")]
+        static extern IntPtr SetClipboardData(uint uFormat, IntPtr hMem);
+        [DllImport("user32.dll")]
+        static extern bool EmptyClipboard();
+        [DllImport("kernel32.dll")]
+        static extern IntPtr GlobalLock(IntPtr hMem);
+        [DllImport("kernel32.dll")]
+        static extern bool GlobalUnlock(IntPtr hMem);
+        [DllImport("kernel32.dll")]
+        static extern IntPtr GlobalAlloc(uint uFlags, UIntPtr dwBytes);
+
+        const uint CF_UNICODETEXT = 13;
+        const uint GMEM_MOVEABLE = 0x0002;
+
+        static string NativeGetClipboardText() {
+            if (!OpenClipboard(IntPtr.Zero)) return string.Empty;
+            IntPtr handle = GetClipboardData(CF_UNICODETEXT);
+            if (handle == IntPtr.Zero) { CloseClipboard(); return string.Empty; }
+            IntPtr pointer = GlobalLock(handle);
+            if (pointer == IntPtr.Zero) { CloseClipboard(); return string.Empty; }
+            string text = Marshal.PtrToStringUni(pointer);
+            GlobalUnlock(handle);
+            CloseClipboard();
+            return text;
+        }
+
+        static void NativeSetClipboardText(string text) {
+            if (text == null) return;
+            if (!OpenClipboard(IntPtr.Zero)) return;
+            EmptyClipboard();
+            UIntPtr bytes = new UIntPtr((uint)(text.Length + 1) * 2);
+            IntPtr hMem = GlobalAlloc(GMEM_MOVEABLE, bytes);
+            if (hMem != IntPtr.Zero) {
+                IntPtr pointer = GlobalLock(hMem);
+                if (pointer != IntPtr.Zero) {
+                    Marshal.Copy(text.ToCharArray(), 0, pointer, text.Length);
+                    Marshal.WriteInt16(pointer, text.Length * 2, 0);
+                    GlobalUnlock(hMem);
+                    SetClipboardData(CF_UNICODETEXT, hMem);
+                }
+            }
+            CloseClipboard();
+        }
+
         class TrieNode { 
             public Dictionary<char, TrieNode> Children; 
-            public string Value; 
+            public string Value;
+            public ulong FastMask;
             public string OriginalKey;
             public double LogFreq = -18.0; // Jieba 分詞對數頻率
 
@@ -38,9 +127,9 @@ namespace MyTools {
             public bool IsContextAnchor;
         }
 
-        // HMM 模型結構定義 (使用陣列消除雜湊開銷)
+        // HMM 模型結構定義
         class HmmModel {
-            // 索引映射：0:B, 1:M, 2:E, 3:S
+
             public double[] start_p = new double[4]; 
             public double[,] trans_p = new double[4, 4]; 
             public double[] emit_p = new double[4 * 65536];
@@ -63,156 +152,290 @@ namespace MyTools {
         static HashSet<string> VisionVocabs = new HashSet<string>();
         static HashSet<string> ContextLogicAnchors = new HashSet<string>();
 
-// PhraseLogic 邏輯
-class PhraseRule {
-    public string Key;
-    public string Target;
-
-    public List<string> LeftIncludes = new List<string>();
-    public List<string> LeftExcludes = new List<string>();
-
-    public List<string> RightIncludes = new List<string>();
-    public List<string> RightExcludes = new List<string>();
-}
-
-static Dictionary<char, List<PhraseRule>> FastPhraseRules = new Dictionary<char, List<PhraseRule>>();
-static bool[] HasPhraseLogicStart = new bool[65536];
-
-static void LoadPhraseLogic(string source) {
-    Match m = Regex.Match(source, @"const\s+PhraseLogic\s*=\s*\{(.*?)\};", RegexOptions.Singleline);
-    if (!m.Success) return;
-    var matches = Regex.Matches(m.Groups[1].Value, @"""(?<k>[^""]+)"":\s*""(?<v>[^""]+)""");
-
-    foreach (Match entry in matches) {
-        string k = entry.Groups["k"].Value;
-        string v = entry.Groups["v"].Value;
-
-        PhraseRule rule = new PhraseRule();
-        rule.Key = k;
-
-        var parts = v.Split(new char[] { '[', ']' }, StringSplitOptions.RemoveEmptyEntries);
-        var targets = parts[0].Split(' ');
-        rule.Target = targets.Length > 1 ? targets[1] : targets[0];
-
-        // 解析左權重
-        if (parts.Length > 1) {
-            foreach (var tag in parts[1].Split('|')) {
-                if (string.IsNullOrEmpty(tag)) continue;
-                if (tag[0] == '!') rule.LeftExcludes.Add(tag.Substring(1));
-                else rule.LeftIncludes.Add(tag);
-            }
-        }
-        // 解析右權重
-        if (parts.Length > 2) {
-            foreach (var tag in parts[2].Split('|')) {
-                if (string.IsNullOrEmpty(tag)) continue;
-                if (tag[0] == '!') rule.RightExcludes.Add(tag.Substring(1));
-                else rule.RightIncludes.Add(tag);
-            }
+        // ContextLogic 微型規則結構
+        class ContextRule {
+            public List<ContextCondition> Conditions = new List<ContextCondition>();
+            public string Target;
         }
 
-        if (k.Length > 0) {
-            char firstChar = k[0];
-            HasPhraseLogicStart[firstChar] = true;
-            if (!FastPhraseRules.ContainsKey(firstChar)) {
-                FastPhraseRules[firstChar] = new List<PhraseRule>();
-            }
-            FastPhraseRules[firstChar].Add(rule);
+        class ContextCondition {
+            public int Offset;
+            public bool IsExclude;
+            public string CharSet;
+            public bool IsSn2;
         }
-    }
-}
 
-static bool TryApplyPhraseLogic(int i, int start, int len, string input, ref int localReplaceCount, out string matchedTarget, out int matchLen) {
-    matchedTarget = null;
-    matchLen = 0;
+        static Dictionary<char, List<ContextRule>> FastContextRules = new Dictionary<char, List<ContextRule>>();
 
-    char firstChar = input[start + i];
+        // PhraseLogic 邏輯
+        class PhraseRule {
+            public string Key;
+            public string Target;
 
-    if (!HasPhraseLogicStart[firstChar]) return false;
+            public List<string> LeftIncludes = new List<string>();
+            public List<string> LeftExcludes = new List<string>();
 
-    List<PhraseRule> rules = FastPhraseRules[firstChar];
-    int absoluteIdx = start + i;
+            public List<string> RightIncludes = new List<string>();
+            public List<string> RightExcludes = new List<string>();
 
-    for (int rIdx = 0; rIdx < rules.Count; rIdx++) {
-        PhraseRule rule = rules[rIdx];
-        string pKey = rule.Key;
+            public int WindowSize = 6;
+            public int PunctuationMode = 1; // 預設 1 為穿越，0 為不穿越防火牆
+            public int LengthThreshold = 4; // 門檻參數
+        }
 
-        if (i + pKey.Length <= len) {
-            bool keyMatch = true;
-            for (int k = 0; k < pKey.Length; k++) {
-                if (input[absoluteIdx + k] != pKey[k]) { keyMatch = false; break; }
+        static Dictionary<char, List<PhraseRule>> FastPhraseRules = new Dictionary<char, List<PhraseRule>>();
+        static bool[] HasPhraseLogicStart = new bool[65536];
+        static int[] MaxPhraseThreshold = new int[65536];
+
+        static bool[] IsBarrierSymbol = new bool[65536];
+
+        static void LoadPhraseLogic(string source) {
+            // 標點符號防火牆
+            string barriers = "。.，,！!？?；;…\n\r";
+
+            foreach (char c in barriers) IsBarrierSymbol[c] = true;
+
+            Match m = Regex.Match(source, @"const\s+PhraseLogic\s*=\s*\{(.*?)\};", RegexOptions.Singleline);
+            if (!m.Success) return;
+            var matches = Regex.Matches(m.Groups[1].Value, @"""(?<k>[^""]+)"":\s*""(?<v>[^""]+)""");
+
+            foreach (Match entry in matches) {
+                string k = entry.Groups["k"].Value;
+                string v = entry.Groups["v"].Value;
+                v = v.Replace('\t', ' ');
+
+                PhraseRule rule = new PhraseRule();
+                rule.Key = k;
+
+                // 解析後綴參數
+                int wSize = 6;
+                int pMode = 1;
+                int lThres = 4;
+
+                Match paramMatch = Regex.Match(v, @"\{(?<w>[1-9])\s*,\s*(?<p>[01])(?:\s*,\s*(?<t>[4-9]))?\}");
+                if (paramMatch.Success) {
+                    int.TryParse(paramMatch.Groups["w"].Value, out wSize);
+                    int.TryParse(paramMatch.Groups["p"].Value, out pMode);
+                    if (paramMatch.Groups["t"].Success) {
+                        int.TryParse(paramMatch.Groups["t"].Value, out lThres);
+                    }
+                    v = v.Substring(0, paramMatch.Index).Trim();
+                }
+                rule.WindowSize = wSize;
+                rule.PunctuationMode = pMode;
+                rule.LengthThreshold = lThres;
+
+                var parts = v.Split(new char[] { '[', ']' }, StringSplitOptions.RemoveEmptyEntries);
+                var targets = parts[0].Split(' ');
+
+                string rawTarget = targets.Length > 1 ? targets[1] : targets[0];
+                rule.Target = rawTarget;
+
+                // 解析左權重
+                if (parts.Length > 1) {
+                    foreach (var tag in parts[1].Split('|')) {
+                        if (string.IsNullOrEmpty(tag)) continue;
+                        if (tag[0] == '!') {
+                            rule.LeftExcludes.Add(tag.Substring(1));
+                        } else {
+                            rule.LeftIncludes.Add(tag);
+                        }
+                    }
+                }
+
+                // 解析右權重
+                if (parts.Length > 2) {
+                    foreach (var tag in parts[2].Split('|')) {
+                        if (string.IsNullOrEmpty(tag)) continue;
+                        if (tag[0] == '!') {
+                            rule.RightExcludes.Add(tag.Substring(1));
+                        } else {
+                            rule.RightIncludes.Add(tag);
+                        }
+                    }
+                }
+
+                if (k.Length > 0) {
+                    char firstChar = k[0];
+                    if (!HasPhraseLogicStart[firstChar]) {
+                        HasPhraseLogicStart[firstChar] = true;
+                        FastPhraseRules[firstChar] = new List<PhraseRule>();
+                        MaxPhraseThreshold[firstChar] = 4;
+                    }
+
+                    if (rule.LengthThreshold > MaxPhraseThreshold[firstChar]) {
+                        MaxPhraseThreshold[firstChar] = rule.LengthThreshold;
+                    }
+                    FastPhraseRules[firstChar].Add(rule);
+                }
             }
-            if (!keyMatch) continue;
+        }
 
-            // 定義視野邊界
-            int leftStart = Math.Max(0, absoluteIdx - 6);
+        static bool TryApplyPhraseLogic(int i, int start, int len, string input, ref int localReplaceCount, out string matchedTarget, out int matchLen) {
+            matchedTarget = null;
+            matchLen = 0;
+
+            char firstChar = input[start + i];
+            if (!HasPhraseLogicStart[firstChar]) return false;
+
+            List<PhraseRule> rules = FastPhraseRules[firstChar];
+            int absoluteIdx = start + i;
+
+            PhraseRule targetRule = null;
+            int maxKeyLen = 0;
+
+            for (int rIdx = 0; rIdx < rules.Count; rIdx++) {
+                PhraseRule rule = rules[rIdx];
+                string pKey = rule.Key;
+
+                if (i + pKey.Length <= len) {
+                    bool keyMatch = true;
+                    for (int k = 0; k < pKey.Length; k++) {
+                        if (input[absoluteIdx + k] != pKey[k]) { keyMatch = false; break; }
+                    }
+
+                    if (keyMatch && pKey.Length > maxKeyLen) {
+                        maxKeyLen = pKey.Length;
+                        targetRule = rule;
+                    }
+                }
+            }
+
+            if (targetRule == null) return false;
+
+            PhraseRule finalRule = targetRule;
+            string finalKey = finalRule.Key;
+
+            int currentWinSize = finalRule.WindowSize;
+            bool pBarrierActive = finalRule.PunctuationMode == 0;
+
+            // 向左計算視窗
+            int leftStart = absoluteIdx;
+            int scanLeftCount = 0;
+            while (leftStart > 0 && scanLeftCount < currentWinSize) {
+                char leftChar = input[leftStart - 1];
+                if (pBarrierActive && IsBarrierSymbol[leftChar]) break;
+                leftStart--;
+                scanLeftCount++;
+            }
             int leftLen = absoluteIdx - leftStart;
-            int rightStart = absoluteIdx + pKey.Length;
-            int rightLen = Math.Min(start + len, rightStart + 6) - rightStart;
+
+            // 向右計算視窗
+            int rightEndLimit = Math.Min(start + len, absoluteIdx + finalKey.Length + currentWinSize);
+            int rightScanEnd = absoluteIdx + finalKey.Length;
+            while (rightScanEnd < rightEndLimit) {
+                char rightChar = input[rightScanEnd];
+                if (pBarrierActive && IsBarrierSymbol[rightChar]) break;
+                rightScanEnd++;
+            }
+            int rightStart = absoluteIdx + finalKey.Length;
+            int rightLen = rightScanEnd - rightStart;
 
             bool isTriggered = false;
 
-            // 向左比對
-            if (rule.LeftExcludes.Count > 0) {
+            // 向左比對 - Excludes
+            if (finalRule.LeftExcludes.Count > 0) {
                 bool hasExclude = false;
-                foreach (var tag in rule.LeftExcludes) {
-                    if (IntrospectiveContains(input, leftStart, leftLen, tag)) { hasExclude = true; break; }
-                }
-                if (hasExclude) continue;
-            }
+                foreach (var tag in finalRule.LeftExcludes) {
+                    bool hasAt = tag.Length > 0 && tag[0] == '@';
+                    string targetTag = hasAt ? tag.Substring(1) : tag;
 
-            if (rule.LeftIncludes.Count > 0) {
-                foreach (var tag in rule.LeftIncludes) {
-                    if (IntrospectiveContains(input, leftStart, leftLen, tag)) { isTriggered = true; break; }
-                }
-            }
-
-            // 向右比對
-            if (rule.RightExcludes.Count > 0) {
-                bool hasExclude = false;
-                foreach (var tag in rule.RightExcludes) {
-                    if (IntrospectiveContains(input, rightStart, rightLen, tag)) { hasExclude = true; break; }
-                }
-                if (hasExclude) continue; 
-            }
-
-            if (rule.RightIncludes.Count > 0) {
-                foreach (var tag in rule.RightIncludes) {
-                    if (IntrospectiveContains(input, rightStart, rightLen, tag)) { isTriggered = true; break; }
-                }
-            }
-
-            if ((rule.LeftIncludes.Count == 0 && rule.RightIncludes.Count == 0) || isTriggered) {
-                localReplaceCount++;
-                matchedTarget = rule.Target;
-                matchLen = pKey.Length;
-                return true;
-            }
-        }
-    }
-    return false;
-}
-
-        static bool IntrospectiveContains(string src, int viewStart, int viewLen, string target) {
-            if (target.Length == 0) return true;
-            if (viewLen < target.Length) return false;
-
-            int maxIdx = viewStart + viewLen - target.Length;
-            for (int s = viewStart; s <= maxIdx; s++) {
-                bool match = true;
-                for (int t = 0; t < target.Length; t++) {
-                    if (src[s + t] != target[t]) {
-                        match = false;
-                        break;
+                    if (hasAt) {
+                        int checkStart = absoluteIdx - targetTag.Length;
+                        if (checkStart >= 0) {
+                            bool isMatch = true;
+                            for (int t = 0; t < targetTag.Length; t++) {
+                                if (input[checkStart + t] != targetTag[t]) { isMatch = false; break; }
+                            }
+                            if (isMatch) { hasExclude = true; break; }
+                        }
+                    } else {
+                        if (IntrospectiveContains(input, leftStart, leftLen, targetTag)) { hasExclude = true; break; }
                     }
                 }
-                if (match) return true;
+                if (hasExclude) return false;
             }
+
+            // 向左比對 - Includes
+            if (finalRule.LeftIncludes.Count > 0) {
+                foreach (var tag in finalRule.LeftIncludes) {
+                    bool hasAt = tag.Length > 0 && tag[0] == '@';
+                    string targetTag = hasAt ? tag.Substring(1) : tag;
+
+                    if (hasAt) {
+                        int checkStart = absoluteIdx - targetTag.Length;
+                        if (checkStart >= 0) {
+                            bool isMatch = true;
+                            for (int t = 0; t < targetTag.Length; t++) {
+                                if (input[checkStart + t] != targetTag[t]) { isMatch = false; break; }
+                            }
+                            if (isMatch) { isTriggered = true; break; }
+                        }
+                    } else {
+                        if (IntrospectiveContains(input, leftStart, leftLen, targetTag)) { isTriggered = true; break; }
+                    }
+                }
+            }
+
+            // 向右比對 - Excludes
+            if (finalRule.RightExcludes.Count > 0) {
+                bool hasExclude = false;
+                foreach (var tag in finalRule.RightExcludes) {
+                    bool hasAt = tag.Length > 0 && tag[0] == '@';
+                    string targetTag = hasAt ? tag.Substring(1) : tag;
+
+                    if (hasAt) {
+                        int checkStart = absoluteIdx + finalKey.Length;
+                        if (checkStart + targetTag.Length <= input.Length) {
+                            bool isMatch = true;
+                            for (int t = 0; t < targetTag.Length; t++) {
+                                if (input[checkStart + t] != targetTag[t]) { isMatch = false; break; }
+                            }
+                            if (isMatch) { hasExclude = true; break; }
+                        }
+                    } else {
+                        if (IntrospectiveContains(input, rightStart, rightLen, targetTag)) { hasExclude = true; break; }
+                    }
+                }
+                if (hasExclude) return false;
+            }
+
+            // 向右比對 - Includes
+            if (finalRule.RightIncludes.Count > 0) {
+                foreach (var tag in finalRule.RightIncludes) {
+                    bool hasAt = tag.Length > 0 && tag[0] == '@';
+                    string targetTag = hasAt ? tag.Substring(1) : tag;
+
+                    if (hasAt) {
+                        int checkStart = absoluteIdx + finalKey.Length;
+                        if (checkStart + targetTag.Length <= input.Length) {
+                            bool isMatch = true;
+                            for (int t = 0; t < targetTag.Length; t++) {
+                                if (input[checkStart + t] != targetTag[t]) { isMatch = false; break; }
+                            }
+                            if (isMatch) { isTriggered = true; break; }
+                        }
+                    } else {
+                        if (IntrospectiveContains(input, rightStart, rightLen, targetTag)) { isTriggered = true; break; }
+                    }
+                }
+            }
+
+            if ((finalRule.LeftIncludes.Count == 0 && finalRule.RightIncludes.Count == 0) || isTriggered) {
+                localReplaceCount++;
+                matchedTarget = finalRule.Target;
+                matchLen = finalKey.Length;
+                return true;
+            }
+
             return false;
         }
 
+        static bool IntrospectiveContains(string src, int viewStart, int viewLen, string target) {
+            return src.IndexOf(target, viewStart, viewLen, StringComparison.Ordinal) >= 0;
+        }
+
         static Func<int, int, string, string> LogicDelegate = null;
-        static object LogicInstance = null;
         static bool[] HasContextLogic = new bool[65536];
 
         // 執行緒專屬記憶體池 (Zero-Allocation 核心)
@@ -255,13 +478,14 @@ static bool TryApplyPhraseLogic(int i, int start, int len, string input, ref int
         }
 
         public static int Convert(string macroPathOrCmd, string configStrOrMode) {
+            InitializeReplaceMap();
             // 設定優先權
-                try {
-                    if (Process.GetCurrentProcess().PriorityClass != ProcessPriorityClass.High) {
-                        Process.GetCurrentProcess().PriorityClass = ProcessPriorityClass.High;
-                    }
-                } catch {
+            try {
+                if (Process.GetCurrentProcess().PriorityClass != ProcessPriorityClass.High) {
+                    Process.GetCurrentProcess().PriorityClass = ProcessPriorityClass.High;
                 }
+            } catch {
+            }
 
             try {
                 // 🌟 [讀取詞典模式] 讀取外部詞典
@@ -395,7 +619,7 @@ static bool TryApplyPhraseLogic(int i, int start, int len, string input, ref int
 
                     string output = string.Join("|||BLOCK_SEP|||", new string[] { phraseData, charData, twVariants, phraseExpData, exceptionData, jiebaData, userDictData, hmmData, twVariantsPhrasesData });
 
-                    try { Clipboard.SetText(output); } catch { return 0; }
+                    try { NativeSetClipboardText(output); } catch { return 0; }
                     return 1;
                 }
 
@@ -648,6 +872,15 @@ static bool TryApplyPhraseLogic(int i, int start, int len, string input, ref int
                     parseMainData(rawCharDataStr, true);
                 }
 
+                LoadPhraseLogic(source);
+                foreach (var kvp in FastPhraseRules) {
+                    foreach (var rule in kvp.Value) {
+                        if (!string.IsNullOrEmpty(rule.Target)) {
+                            rule.Target = applyTWVariants(rule.Target);
+                        }
+                    }
+                }
+
                 if (isS2T && !isAlt && !isShift && twPhrasesMap.Count > 0 && reverseCharMap.Count > 0) {
                     foreach (var kvp in twPhrasesMap) {
                         string twKey = kvp.Key;
@@ -753,7 +986,7 @@ static bool TryApplyPhraseLogic(int i, int start, int len, string input, ref int
                         string[] lines = rawHmmDataStr.Split(new string[] { "\r\n", "\n" }, StringSplitOptions.None);
 
                         // 定義內部映射表確保狀態與陣列索引一致
-                        // 映射規則：B:0, M:1, E:2, S:3
+
                         Dictionary<char, int> sIdx = new Dictionary<char, int> { { 'B', 0 }, { 'M', 1 }, { 'E', 2 }, { 'S', 3 } };
                         // 檔案讀取順序為 B, E, M, S
                         char[] fileStates = { 'B', 'E', 'M', 'S' };
@@ -807,7 +1040,7 @@ static bool TryApplyPhraseLogic(int i, int start, int len, string input, ref int
                     }
                 }
 
-                string fullInput = Clipboard.GetText();
+                string fullInput = NativeGetClipboardText();
                 if (string.IsNullOrEmpty(fullInput)) return 0;
                 int totalLen = fullInput.Length;
 
@@ -864,8 +1097,8 @@ static bool TryApplyPhraseLogic(int i, int start, int len, string input, ref int
                 double FREQ_BONUS_LOW = 0.5;
                 double FREQ_BONUS_FEW = 0.1;
 
-                string ONE_TO_MANY_S2T = "㐹万丑个丰了于云亘仆仇仑价仿伙余佛佣俊修借僵克党冬冲凄准凌几凶出划别刮制勋千升卜占卤卷厂历厘参发只台叶叹吁吃合吊同后向周咨咸咽哄哗唇啮喂噪回团困坛坝埙复夫夸奸姜娘娴宁它家尝尸尽局岩岳巨布帘席干并幸广庵弥弦当录彩征御志念恤恶愈愿戚才扎托扣折抵拐挂挨挽据搜摆斗旋昆暗曲术朱朴杆杠杯杰松板极柜栗核梁欲毁汇沈沾泛注涂涌淀游滟漓炼烟熏玩璇症皂矩确私秋种筑签系纤绱绷胄背胜胡脏腊腌膻致舍艳芸苏苔苹范荐荡荫药获蒙蔑虫蚝蜡蝎表袅裥证谥谷赝赞跖辟迹适郁酸采里鉴针钟钥钫钻铲链锫镋镎镢镰闲雕面须饥鹇洒虱湿袜";
-                string ONE_TO_MANY_T2S = "乾儘剋劃噁噹夥崙廬彷徵戰擣於瀋瀰牴畫瞭祇綵線薹藉蘋衹襬覆託諫諮譾買鉅鍊鍾鏇钁開閒阪靦韝願餘餬餱餵驄鵰麪麴麵麼麽齧";
+                string ONE_TO_MANY_S2T = "㐹万丑个丰了于云亘仆仇仑价仿伙余佛佣俊修借僵克党具冢冬冲凄准凌几凶出划别刮制勋千升卜占卤卷厂历厘参发只台叶叹吁吃合吊同后向吣呆周咨咸咽哄哗唇啮喂噪回团困坐坛坝坯埙堤复夫夸夹奸姜娘娴宁它家尝尸尽局岩岳巨布帘席干并幸广庵弥弦当录彩征径御志念恤恶愈愿戚扇才扎托扣折抵拐拿挂挨挽捆捍据搜摆斗斤斫旋昆暗曲札术朱朴杆杠杯杰松板极果枪柜栗核梁棱檗欲毁汇沈沾泛注浚涂涌淀游溪滟漓澄炼烟焰熏狸玩琅璇症皂矩确硷私秋种穗筑筱签糊系累纤绱绷耇胄背胜胡脏腊腌膻致舍艳芸苏苔苹范荐荡荫药获蒙蔑藤虫蚝蜡蝎表袅裥证谥谷豆象赝赞跖辟迹适郁酸采里鉴针钟钥钫钻铲链锄锫镋镎镢镰闲雕面须饥鹇洒虱湿袜";
+                string ONE_TO_MANY_T2S = "么乾仝俱像儘剋劃劄勣叚吒哩喆噁噹坏堃夥崙廬彷徵戰扞擣於昇椀椏氾沈淼澂瀋瀰牴犇甦甯畫瞭礆祇祕筦箚絜綵線耑脩菉蒐薹藉蘋衹袷襬覆託訢諫諮譾讎谿貲買迺逕邨釐鉅鍊鍾鏇鑪钁開閒阪陞靦韝頫願颺餘餬餱餵驄鵰麪麴麵麼麽齧龢";
 
                 bool[] IsOneToMany = new bool[65536];
                 string targetOneToManyList = (mode == "S2T" || mode == "S2TE") ? ONE_TO_MANY_S2T : ONE_TO_MANY_T2S;
@@ -883,14 +1116,72 @@ static bool TryApplyPhraseLogic(int i, int start, int len, string input, ref int
                     options, 
                     () => new ThreadState(), 
                     (int tIdx, System.Threading.Tasks.ParallelLoopState loopState, ThreadState state) => {
-                        int start = cutsList[tIdx];
-                        int end = cutsList[tIdx + 1];
-                        int len = end - start;
-                        if (len <= 0) { chunksOut[tIdx] = ""; return state; }
+                        int startOffset = cutsList[tIdx];
+                        int endOffset = cutsList[tIdx + 1];
+                        int rawLen = endOffset - startOffset;
+                        if (rawLen <= 0) { chunksOut[tIdx] = ""; return state; }
+
+                        // 相容字安全查表換字閘道
+                        string localInput = null;
+                        int start = startOffset;
+                        int len = rawLen;
+
+                        // 利用直接定址，0 開銷掃描 CJK 相容區 (排除代理對與非相容字)
+                        bool hasCompat = false;
+                        if (!isAlt) {
+                            for (int k = startOffset; k < endOffset; k++) {
+                                char c = fullInput[k];
+                                // 鎖定相容字 U+F900~U+FAFF 與平面2的高位代理
+                                if ((c >= 0xF900 && c <= 0xFAFF) || (c >= 0xD840 && c <= 0xD87F)) {
+                                    hasCompat = true;
+                                    break;
+                                }
+                            }
+                        }
+
+                        // 動態原地重組
+                        int compatReplaceCount = 0;
+                        if (hasCompat) {
+                            System.Text.StringBuilder sbClean = new System.Text.StringBuilder(rawLen);
+                            int k = startOffset;
+                            while (k < endOffset) {
+                                int cp = (int)fullInput[k];
+                                int step = 1;
+
+                                if (k + 1 < endOffset && char.IsSurrogatePair(fullInput, k)) {
+                                    cp = char.ConvertToUtf32(fullInput, k);
+                                    step = 2;
+                                }
+
+                                if (cp >= 0xF900 && FastReplaceMap.ContainsKey(cp)) {
+                                    int rep = FastReplaceMap[cp];
+                                    if (rep <= 0xFFFF) sbClean.Append((char)rep);
+                                    else sbClean.Append(char.ConvertFromUtf32(rep));
+                                    compatReplaceCount++;
+                                } else {
+                                    if (step == 2) {
+                                        sbClean.Append(fullInput[k]);
+                                        sbClean.Append(fullInput[k + 1]);
+                                    } else {
+                                        sbClean.Append(fullInput[k]);
+                                    }
+                                }
+                                k += step;
+                            }
+                            localInput = sbClean.ToString();
+                            start = 0; 
+                            len = localInput.Length;
+                        } else {
+                            localInput = fullInput;
+                            start = startOffset;
+                            len = rawLen;
+                        }
 
                         state.EnsureSize(len);
-                        int i = 0, lastMatchEnd = 0, localReplaceCount = 0;
-                        bool hasReplacements = false;
+                        int i = 0, lastMatchEnd = 0;
+
+                        bool hasReplacements = hasCompat; 
+                        int localReplaceCount = compatReplaceCount;
 
                         double[] routeScore = state.routeScore;
                         int[] routeNext = state.routeNext;
@@ -913,13 +1204,13 @@ static bool TryApplyPhraseLogic(int i, int start, int len, string input, ref int
                                 int[] backPath = state.bpBuf;
                                 int[] statesPath = state.spBuf;
 
-                                int firstCharCode = (int)fullInput[start + startPtr];
+                                int firstCharCode = (int)localInput[start + startPtr];
                                 for (int s = 0; s < 4; s++) {
                                     V[s] = hmm.start_p[s] + hmm.emit_p[s * 65536 + firstCharCode];
                                 }
 
                                 for (int t = 1; t < obsLen; t++) {
-                                    int charCode = (int)fullInput[start + startPtr + t];
+                                    int charCode = (int)localInput[start + startPtr + t];
                                     for (int y = 0; y < 4; y++) {
                                         double maxProb = double.NegativeInfinity;
                                         int bestPrevState = 0;
@@ -960,12 +1251,12 @@ static bool TryApplyPhraseLogic(int i, int start, int len, string input, ref int
                             };
 
                             for (int idx = len - 1; idx >= 0; idx--) {
-                                char firstChar = fullInput[start + idx];
+                                char firstChar = localInput[start + idx];
                                 if (firstChar < fastSkipLimit) {
                                     routeScore[idx] = routeScore[idx + 1];
                                     routeNext[idx] = idx + 1;
                                     // 區塊跳躍 (反向單步)
-                                    while (idx - 1 >= 0 && fullInput[start + idx - 1] < fastSkipLimit) {
+                                    while (idx - 1 >= 0 && localInput[start + idx - 1] < fastSkipLimit) {
                                         idx--;
                                         routeScore[idx] = routeScore[idx + 1];
                                         routeNext[idx] = idx + 1;
@@ -1022,7 +1313,7 @@ static bool TryApplyPhraseLogic(int i, int start, int len, string input, ref int
 
                                         // B：一對多單字懲罰機制 (直接定址優化)
                                         double penalty = 0;
-                                        if (wordLen == 1 && IsOneToMany[fullInput[start + idx]]) {
+                                        if (wordLen == 1 && IsOneToMany[localInput[start + idx]]) {
                                             penalty = PENALTY_ONE_TO_MANY;
                                         }
 
@@ -1051,8 +1342,9 @@ static bool TryApplyPhraseLogic(int i, int start, int len, string input, ref int
                                     }
                                     j++;
                                     if (j < len) {
+                                        if ((curr.FastMask & (1UL << (localInput[start + j] & 63))) == 0) break;
                                         TrieNode nxtNode = null;
-                                        curr = (curr.Children != null && curr.Children.TryGetValue(fullInput[start + j], out nxtNode)) ? nxtNode : null;
+                                        curr = (curr.Children != null && curr.Children.TryGetValue(localInput[start + j], out nxtNode)) ? nxtNode : null;
                                         if (curr == null) break;
                                     }
                                 }
@@ -1063,16 +1355,16 @@ static bool TryApplyPhraseLogic(int i, int start, int len, string input, ref int
                             // 第 1.5 階段：HMM 處理連續單字
                             int ptr = 0;
                             while (ptr < len) {
-                                if (fullInput[start + ptr] < fastSkipLimit) {
+                                if (localInput[start + ptr] < fastSkipLimit) {
                                     // 區塊跳躍 (正向 4 步)
-                                    while (ptr + 3 < len && (fullInput[start + ptr] | fullInput[start + ptr + 1] | fullInput[start + ptr + 2] | fullInput[start + ptr + 3]) < fastSkipLimit) ptr += 4;
-                                    while (ptr < len && fullInput[start + ptr] < fastSkipLimit) ptr++;
+                                    while (ptr + 3 < len && (localInput[start + ptr] | localInput[start + ptr + 1] | localInput[start + ptr + 2] | localInput[start + ptr + 3]) < fastSkipLimit) ptr += 4;
+                                    while (ptr < len && localInput[start + ptr] < fastSkipLimit) ptr++;
                                     continue;
                                 }
 
                                 int nextPtr = routeNext[ptr];
                                 int wLen = nextPtr - ptr;
-                                char code = fullInput[start + ptr];
+                                char code = localInput[start + ptr];
 
                                 if (wLen == 1 && code >= 0x4E00 && code <= 0x9FFF) {
                                     int startPtr = ptr;
@@ -1080,7 +1372,7 @@ static bool TryApplyPhraseLogic(int i, int start, int len, string input, ref int
                                     while (endPtr < len) {
                                         int nxt = routeNext[endPtr];
 
-                                        char endChar = fullInput[start + endPtr];
+                                        char endChar = localInput[start + endPtr];
                                         if (nxt - endPtr == 1 && endChar >= 0x4E00 && endChar <= 0x9FFF) {
                                             endPtr = nxt;
                                         } else {
@@ -1102,21 +1394,24 @@ static bool TryApplyPhraseLogic(int i, int start, int len, string input, ref int
                             // 第 2 階段：轉換輸出 (整合 ContextLogic 與 Fallback)
                             int extractIdx = 0;
                             while (extractIdx < len) {
-                                if (fullInput[start + extractIdx] < fastSkipLimit) {
+                                if (localInput[start + extractIdx] < fastSkipLimit) {
                                     // 區塊跳躍 (正向 4 步)
-                                    while (extractIdx + 3 < len && (fullInput[start + extractIdx] | fullInput[start + extractIdx + 1] | fullInput[start + extractIdx + 2] | fullInput[start + extractIdx + 3]) < fastSkipLimit) extractIdx += 4;
-                                    while (extractIdx < len && fullInput[start + extractIdx] < fastSkipLimit) extractIdx++;
+                                    while (extractIdx + 3 < len && (localInput[start + extractIdx] | localInput[start + extractIdx + 1] | localInput[start + extractIdx + 2] | localInput[start + extractIdx + 3]) < fastSkipLimit) extractIdx += 4;
+                                    while (extractIdx < len && localInput[start + extractIdx] < fastSkipLimit) extractIdx++;
                                     continue;
                                 }
 
                                 int nxt = routeNext[extractIdx];
 
                                 // 檢查 PhraseLogic
-                                if ((nxt - extractIdx) < 4 && isCtx && !isShift && HasPhraseLogicStart[fullInput[start + extractIdx]]) {
+                                int firstCharCode = localInput[start + extractIdx];
+                                int currentMaxThres = HasPhraseLogicStart[firstCharCode] ? MaxPhraseThreshold[firstCharCode] : 4;
+
+                                if ((nxt - extractIdx) < currentMaxThres && isCtx && !isShift && HasPhraseLogicStart[firstCharCode]) {
                                     string pTarget; int pLen;
-                                    if (TryApplyPhraseLogic(extractIdx, start, len, fullInput, ref localReplaceCount, out pTarget, out pLen)) {
+                                    if (TryApplyPhraseLogic(extractIdx, start, len, localInput, ref localReplaceCount, out pTarget, out pLen)) {
                                         hasReplacements = true;
-                                        if (extractIdx > lastMatchEnd) sb.Append(fullInput, start + lastMatchEnd, extractIdx - lastMatchEnd);
+                                        if (extractIdx > lastMatchEnd) sb.Append(localInput, start + lastMatchEnd, extractIdx - lastMatchEnd);
                                         sb.Append(pTarget);
                                         extractIdx += pLen;
                                         lastMatchEnd = extractIdx;
@@ -1128,15 +1423,15 @@ static bool TryApplyPhraseLogic(int i, int start, int len, string input, ref int
                                 int _wLen = nxt - extractIdx;
 
                                 // 用 IsAnchorStart 擋掉不是錨點的詞
-                                if (VisionAnchors != null && VisionAnchors.Count > 0 && _wLen > 1 && IsAnchorStart[fullInput[start + extractIdx]]) 
+                                if (VisionAnchors != null && VisionAnchors.Count > 0 && _wLen > 1 && IsAnchorStart[localInput[start + extractIdx]]) 
                                 {
                                     // 第一段拔刀：偵測到定錨點 (純字典樹判定，0 Allocation)
                                     bool isAnchor = false;
-                                    TrieNode aNode = rootNodes[fullInput[start + extractIdx]];
+                                    TrieNode aNode = rootNodes[localInput[start + extractIdx]];
                                     if (aNode != null) {
                                         for (int k = 1; k < _wLen; k++) {
                                             TrieNode nextN = null;
-                                            if (aNode.Children != null && aNode.Children.TryGetValue(fullInput[start + extractIdx + k], out nextN)) {
+                                            if (aNode.Children != null && aNode.Children.TryGetValue(localInput[start + extractIdx + k], out nextN)) {
                                                 aNode = nextN;
                                             } else { 
                                                 aNode = null; 
@@ -1153,14 +1448,14 @@ static bool TryApplyPhraseLogic(int i, int start, int len, string input, ref int
 
                                         // 向後掃描尋找強勢詞
                                         int vk = visionIdx + 1;
-                                        TrieNode continuousNode = rootNodes[fullInput[start + visionIdx]];
+                                        TrieNode continuousNode = rootNodes[localInput[start + visionIdx]];
 
                                         while (vk < len && (vk - visionIdx) <= 8)
                                         {
                                             if (continuousNode != null) 
                                             {
                                                 TrieNode nextN = null;
-                                                if (continuousNode.Children != null && continuousNode.Children.TryGetValue(fullInput[start + vk], out nextN)) {
+                                                if (continuousNode.Children != null && continuousNode.Children.TryGetValue(localInput[start + vk], out nextN)) {
                                                     continuousNode = nextN;
                                                 } else {
                                                     continuousNode = null;
@@ -1192,14 +1487,14 @@ static bool TryApplyPhraseLogic(int i, int start, int len, string input, ref int
 
                                             // 再次向後掃描：看有沒有更強的詞
                                             int sk = stabIdx + 1;
-                                            TrieNode sNode = rootNodes[fullInput[start + stabIdx]];
+                                            TrieNode sNode = rootNodes[localInput[start + stabIdx]];
 
                                             while (sk < len && (sk - stabIdx) <= 8)
                                             {
                                                 if (sNode != null) 
                                                 {
                                                     TrieNode nextSN = null;
-                                                    if (sNode.Children != null && sNode.Children.TryGetValue(fullInput[start + sk], out nextSN)) 
+                                                    if (sNode.Children != null && sNode.Children.TryGetValue(localInput[start + sk], out nextSN)) 
                                                     {
                                                         sNode = nextSN;
                                                         // 發現假象，收刀不砍
@@ -1230,25 +1525,25 @@ static bool TryApplyPhraseLogic(int i, int start, int len, string input, ref int
                                 }
 
                                 int wordLen = nxt - extractIdx;
-                                char firstChar = fullInput[start + extractIdx];
+                                char firstChar2 = localInput[start + extractIdx];
 
                                 string openccTarget = null;
-                                TrieNode node = rootNodes[firstChar];
+                                TrieNode node2 = rootNodes[firstChar2];
 
-                                if (node != null) {
+                                if (node2 != null) {
                                     if (wordLen == 1) {
-                                        if (isCtx && !isShift && LogicDelegate != null && HasContextLogic[firstChar]) {
-                                            string logicResult = LogicDelegate((int)firstChar, start + extractIdx, fullInput);
-                                            if (logicResult != null) openccTarget = logicResult;
+                                        if (isCtx && !isShift && LogicDelegate != null && HasContextLogic[firstChar2]) {
+                                            string logicResult = LogicDelegate((int)firstChar2, start + extractIdx, localInput);
+                                            if (logicResult != null) openccTarget = applyTWVariants(logicResult);
                                         }
-                                        if (openccTarget == null && node.Value != null) {
-                                            openccTarget = node.Value;
+                                        if (openccTarget == null && node2.Value != null) {
+                                            openccTarget = node2.Value;
                                         }
                                     } else {
-                                        TrieNode currNode = node;
+                                        TrieNode currNode = node2;
                                         for (int k = 1; k < wordLen; k++) {
                                             TrieNode nextN;
-                                            if (currNode.Children != null && currNode.Children.TryGetValue(fullInput[start + extractIdx + k], out nextN)) {
+                                            if (currNode.Children != null && currNode.Children.TryGetValue(localInput[start + extractIdx + k], out nextN)) {
                                                 currNode = nextN;
                                             } else {
                                                 currNode = null; break;
@@ -1264,10 +1559,10 @@ static bool TryApplyPhraseLogic(int i, int start, int len, string input, ref int
                                     finalTarget = openccTarget;
                                 } else {
                                     int subK = 0;
-                                    fbSb.Length = 0; // 零分配
+                                    fbSb.Length = 0;
 
                                     while (subK < wordLen) {
-                                        char ch = fullInput[start + extractIdx + subK];
+                                        char ch = localInput[start + extractIdx + subK];
                                         int longestMatchLen = 0;
                                         string longestMatchTarget = null;
 
@@ -1280,8 +1575,9 @@ static bool TryApplyPhraseLogic(int i, int start, int len, string input, ref int
                                             int scan = 1;
                                             TrieNode temp = fNode;
                                             while (subK + scan < wordLen) {
+                                                if ((temp.FastMask & (1UL << (localInput[start + extractIdx + subK + scan] & 63))) == 0) break;
                                                 TrieNode nextN;
-                                                if (temp.Children == null || !temp.Children.TryGetValue(fullInput[start + extractIdx + subK + scan], out nextN)) break;
+                                                if (temp.Children == null || !temp.Children.TryGetValue(localInput[start + extractIdx + subK + scan], out nextN)) break;
                                                 temp = nextN;
                                                 if (temp.Value != null) {
                                                     longestMatchLen = scan + 1;
@@ -1292,23 +1588,23 @@ static bool TryApplyPhraseLogic(int i, int start, int len, string input, ref int
                                         }
 
                                         if (longestMatchLen <= 1 && isCtx && !isShift && LogicDelegate != null && HasContextLogic[ch]) {
-                                            string lRes = LogicDelegate((int)ch, start + extractIdx + subK, fullInput);
+                                            string lRes = LogicDelegate((int)ch, start + extractIdx + subK, localInput);
                                             if (lRes != null) {
-                                                longestMatchTarget = lRes;
+                                                longestMatchTarget = applyTWVariants(lRes);
                                                 longestMatchLen = 1;
                                             }
                                         }
 
-                                        int matchLen = Math.Max(1, longestMatchLen);
+                                        int matchLen2 = Math.Max(1, longestMatchLen);
 
                                         if (longestMatchTarget != null) {
-                                            if (fbSb.Length == 0 && subK > 0) fbSb.Append(fullInput, start + extractIdx, subK);
+                                            if (fbSb.Length == 0 && subK > 0) fbSb.Append(localInput, start + extractIdx, subK);
                                             fbSb.Append(longestMatchTarget);
                                         } else if (fbSb.Length > 0) {
                                             fbSb.Append(ch);
                                         }
 
-                                        subK += matchLen;
+                                        subK += matchLen2;
                                     }
                                     if (fbSb.Length > 0) finalTarget = fbSb.ToString();
                                 }
@@ -1319,14 +1615,14 @@ static bool TryApplyPhraseLogic(int i, int start, int len, string input, ref int
                                     if (finalTarget.Length != wordLen) isChanged = true;
                                     else { 
                                         for (int k = 0; k < wordLen; k++) {
-                                            if (finalTarget[k] != fullInput[start + extractIdx + k]) { isChanged = true; break; } 
+                                            if (finalTarget[k] != localInput[start + extractIdx + k]) { isChanged = true; break; } 
                                         } 
                                     }
 
                                     if (isChanged) {
                                         hasReplacements = true;
                                         localReplaceCount++;
-                                        if (extractIdx > lastMatchEnd) sb.Append(fullInput, start + lastMatchEnd, extractIdx - lastMatchEnd);
+                                        if (extractIdx > lastMatchEnd) sb.Append(localInput, start + lastMatchEnd, extractIdx - lastMatchEnd);
                                         sb.Append(finalTarget);
                                         lastMatchEnd = nxt;
                                     }
@@ -1337,9 +1633,9 @@ static bool TryApplyPhraseLogic(int i, int start, int len, string input, ref int
                         } else {
                             // 原本的貪婪最長匹配轉換 (非結巴模式)
                             while (i < len) {
-                                while (i + 3 < len && (fullInput[start + i] | fullInput[start + i + 1] | fullInput[start + i + 2] | fullInput[start + i + 3]) < fastSkipLimit) i += 4;
-                                while (i < len && fullInput[start + i] < fastSkipLimit) i++; if (i >= len) break; 
-                                char firstChar = fullInput[start + i];
+                                while (i + 3 < len && (localInput[start + i] | localInput[start + i + 1] | localInput[start + i + 2] | localInput[start + i + 3]) < fastSkipLimit) i += 4;
+                                while (i < len && localInput[start + i] < fastSkipLimit) i++; if (i >= len) break; 
+                                char firstChar = localInput[start + i];
 
                                 TrieNode node = rootNodes[firstChar];
                                 int longestMatchLen = 0; string longestMatchTarget = null;
@@ -1348,8 +1644,9 @@ static bool TryApplyPhraseLogic(int i, int start, int len, string input, ref int
                                     if (node.Value != null) { longestMatchLen = 1; longestMatchTarget = node.Value; }
                                     int j = i + 1; TrieNode curr = node;
                                     while (j < len) {
+                                        if ((curr.FastMask & (1UL << (localInput[start + j] & 63))) == 0) break;
                                         TrieNode nextNode;
-                                        if (curr.Children == null || !curr.Children.TryGetValue(fullInput[start + j], out nextNode)) break;
+                                        if (curr.Children == null || !curr.Children.TryGetValue(localInput[start + j], out nextNode)) break;
                                         curr = nextNode;
                                         if (curr.Value != null) { longestMatchLen = j - i + 1; longestMatchTarget = curr.Value; }
                                         j++;
@@ -1357,11 +1654,12 @@ static bool TryApplyPhraseLogic(int i, int start, int len, string input, ref int
                                 }
 
                                 // 檢查 PhraseLogic
-                                if (longestMatchLen < 4 && isCtx && !isShift && HasPhraseLogicStart[firstChar]) {
+                                int currentMaxThres = HasPhraseLogicStart[firstChar] ? MaxPhraseThreshold[firstChar] : 4;
+                                if (longestMatchLen < currentMaxThres && isCtx && !isShift && HasPhraseLogicStart[firstChar]) {
                                     string pTarget; int pLen;
-                                    if (TryApplyPhraseLogic(i, start, len, fullInput, ref localReplaceCount, out pTarget, out pLen)) {
+                                    if (TryApplyPhraseLogic(i, start, len, localInput, ref localReplaceCount, out pTarget, out pLen)) {
                                         hasReplacements = true;
-                                        if (i > lastMatchEnd) sb.Append(fullInput, start + lastMatchEnd, i - lastMatchEnd);
+                                        if (i > lastMatchEnd) sb.Append(localInput, start + lastMatchEnd, i - lastMatchEnd);
                                         sb.Append(pTarget);
                                         i += pLen;
                                         lastMatchEnd = i;
@@ -1372,12 +1670,12 @@ static bool TryApplyPhraseLogic(int i, int start, int len, string input, ref int
                                 // 🔭 視界邏輯 (0 Allocation 極速版)
                                 if (isVis && !isShift && longestMatchLen > 1) {
                                     int foundALen = 0;
-                                    TrieNode aN = rootNodes[fullInput[start + i]];
+                                    TrieNode aN = rootNodes[localInput[start + i]];
                                     if (aN != null) {
                                         if (aN.IsVisionAnchor) foundALen = 1;
                                         // 往前探勘
                                         for (int k = 1; k < longestMatchLen; k++) {
-                                            if (aN.Children != null && aN.Children.TryGetValue(fullInput[start + i + k], out aN)) {
+                                            if (aN.Children != null && aN.Children.TryGetValue(localInput[start + i + k], out aN)) {
                                                 if (aN.IsVisionAnchor) foundALen = k + 1;
                                             } else break;
                                         }
@@ -1387,18 +1685,18 @@ static bool TryApplyPhraseLogic(int i, int start, int len, string input, ref int
 
                                     if (foundALen > 1) {
                                         int vIdx = i + foundALen - 1; 
-                                        int vWordLen = 0; // 改紀錄長度，不產生 String
+                                        int vWordLen = 0;
                                         int vk = vIdx + 1; 
-                                        TrieNode vN = rootNodes[fullInput[start + vIdx]];
+                                        TrieNode vN = rootNodes[localInput[start + vIdx]];
 
                                         while (vk < len) {
                                             if (vN != null && vN.Children != null) {
                                                 TrieNode nextVN;
-                                                if (vN.Children.TryGetValue(fullInput[start + vk], out nextVN)) vN = nextVN; else vN = null;
+                                                if (vN.Children.TryGetValue(localInput[start + vk], out nextVN)) vN = nextVN; else vN = null;
                                             } else vN = null;
 
                                             int currentSubLen = vk - vIdx + 1;
-                                            // 直接檢查節點屬性，不再呼叫 VisionVocabs.Contains(sub)
+
                                             if (vN != null && ((vN.Value != null) || vN.IsVisionVocab)) vWordLen = currentSubLen; 
 
                                             if (vN == null && currentSubLen > 6) break;
@@ -1409,12 +1707,12 @@ static bool TryApplyPhraseLogic(int i, int start, int len, string input, ref int
                                             bool stable = true; 
                                             int dIdx = vIdx + vWordLen - 1; 
                                             int dk = dIdx + 1; 
-                                            TrieNode dN = rootNodes[fullInput[start + dIdx]];
+                                            TrieNode dN = rootNodes[localInput[start + dIdx]];
 
                                             while (dk < len) {
                                                 if (dN != null && dN.Children != null) {
                                                     TrieNode nextDN;
-                                                    if (dN.Children.TryGetValue(fullInput[start + dk], out nextDN)) dN = nextDN; else dN = null;
+                                                    if (dN.Children.TryGetValue(localInput[start + dk], out nextDN)) dN = nextDN; else dN = null;
                                                 } else dN = null;
 
                                                 int currentSubLen = dk - dIdx + 1;
@@ -1427,11 +1725,11 @@ static bool TryApplyPhraseLogic(int i, int start, int len, string input, ref int
 
                                             if (stable) {
                                                 int bLen = 1; 
-                                                TrieNode bN = rootNodes[fullInput[start + i]];
+                                                TrieNode bN = rootNodes[localInput[start + i]];
                                                 if (bN != null) {
                                                     // 只找尋小於 foundALen - 1 的次長 Anchor
                                                     for (int k = 1; k < foundALen - 1; k++) {
-                                                        if (bN.Children != null && bN.Children.TryGetValue(fullInput[start + i + k], out bN)) {
+                                                        if (bN.Children != null && bN.Children.TryGetValue(localInput[start + i + k], out bN)) {
                                                             if (bN.IsVisionAnchor) bLen = k + 1;
                                                         } else break;
                                                     }
@@ -1440,9 +1738,9 @@ static bool TryApplyPhraseLogic(int i, int start, int len, string input, ref int
                                                 longestMatchLen = bLen < 2 ? 1 : bLen;
 
                                                 // 重新定位 Target
-                                                TrieNode tN = rootNodes[fullInput[start + i]]; 
+                                                TrieNode tN = rootNodes[localInput[start + i]]; 
                                                 for (int k = 1; k < longestMatchLen; k++) {
-                                                    if (tN.Children != null && tN.Children.TryGetValue(fullInput[start + i + k], out tN)) {} else { tN = null; break; }
+                                                    if (tN.Children != null && tN.Children.TryGetValue(localInput[start + i + k], out tN)) {} else { tN = null; break; }
                                                 }
                                                 longestMatchTarget = tN != null ? tN.Value : null;
                                             }
@@ -1452,9 +1750,9 @@ static bool TryApplyPhraseLogic(int i, int start, int len, string input, ref int
 
                                 // ⚓ 語法邏輯 (精簡變數與極速判定版)
                                 if (isCtx && !isShift && longestMatchLen <= 1 && LogicDelegate != null && HasContextLogic[firstChar]) {
-                                    string lRes = LogicDelegate((int)firstChar, start + i, fullInput);
+                                    string lRes = LogicDelegate((int)firstChar, start + i, localInput);
                                     if (lRes != null) { 
-                                        longestMatchTarget = lRes; 
+                                        longestMatchTarget = applyTWVariants(lRes); 
                                         longestMatchLen = 1; 
                                     }
                                 }
@@ -1469,11 +1767,11 @@ static bool TryApplyPhraseLogic(int i, int start, int len, string input, ref int
                                     if (targetLen != matchLen) {
                                         isChanged = true;
                                     } else if (targetLen == 1) {
-                                        isChanged = longestMatchTarget[0] != fullInput[start + i];
+                                        isChanged = longestMatchTarget[0] != localInput[start + i];
                                     } else {
                                         // 只有長度大於 1 的詞彙，才會進入迴圈
                                         for (int k = 0; k < targetLen; k++) {
-                                            if (longestMatchTarget[k] != fullInput[start + i + k]) { 
+                                            if (longestMatchTarget[k] != localInput[start + i + k]) { 
                                                 isChanged = true; 
                                                 break; 
                                             }
@@ -1483,7 +1781,7 @@ static bool TryApplyPhraseLogic(int i, int start, int len, string input, ref int
                                     if (isChanged) {
                                         hasReplacements = true;
                                         localReplaceCount++;
-                                        if (i > lastMatchEnd) sb.Append(fullInput, start + lastMatchEnd, i - lastMatchEnd);
+                                        if (i > lastMatchEnd) sb.Append(localInput, start + lastMatchEnd, i - lastMatchEnd);
                                         sb.Append(longestMatchTarget);
                                         lastMatchEnd = i + matchLen;
                                     } 
@@ -1494,10 +1792,11 @@ static bool TryApplyPhraseLogic(int i, int start, int len, string input, ref int
                             }
                         }
 
+                        // 結算未轉換文字
                         if (!hasReplacements) {
-                            chunksOut[tIdx] = fullInput.Substring(start, len);
+                            chunksOut[tIdx] = localInput.Substring(start, len);
                         } else {
-                            if (lastMatchEnd < len) sb.Append(fullInput, start + lastMatchEnd, len - lastMatchEnd);
+                            if (lastMatchEnd < len) sb.Append(localInput, start + lastMatchEnd, len - lastMatchEnd);
                             chunksOut[tIdx] = sb.ToString();
                         }
                         System.Threading.Interlocked.Add(ref totalReplaceCount, localReplaceCount);
@@ -1513,7 +1812,7 @@ static bool TryApplyPhraseLogic(int i, int start, int len, string input, ref int
                     }
                 );
 
-                Clipboard.SetText(string.Join("", chunksOut));
+                NativeSetClipboardText(string.Join("", chunksOut));
                 return totalReplaceCount;
 
             } catch (Exception ex) { 
@@ -1525,72 +1824,126 @@ static bool TryApplyPhraseLogic(int i, int start, int len, string input, ref int
             }
         }
 
+        // 微型規則解譯器
         static void CompileContextLogic(string jsSource, string mode) {
-            string logicName = mode.IndexOf("T2S") != -1 ? "ContextLogic_T2S" : "ContextLogic";
-            var logicMatch = Regex.Match(jsSource, @"const " + logicName + @"\s*=\s*\{(.*?)\};", RegexOptions.Singleline);
-            if (!logicMatch.Success) return;
+            FastContextRules.Clear();
+            Array.Clear(HasContextLogic, 0, HasContextLogic.Length);
 
-            string mVal = Regex.Match(jsSource, @"const m\s*=\s*(?:""|')(?<v>.*?)(?:""|')").Groups["v"].Value;
-            string sn2Val = Regex.Match(jsSource, @"const sn2\s*=\s*(?:""|')(?<v>.*?)(?:""|')").Groups["v"].Value;
-            string safeM = mVal.Replace("\\", "\\\\").Replace("\"", "\\\"");
-            string safeSn2 = sn2Val.Replace("\\", "\\\\").Replace("\"", "\\\"");
+            var mMatch = Regex.Match(jsSource, @"const\s+m\s*=\s*[""'](.*?)[""'];");
+            string mVal = mMatch.Success ? mMatch.Groups[1].Value : "";
 
-            StringBuilder cases = new StringBuilder();
-            MatchCollection funcMatches = Regex.Matches(logicMatch.Groups[1].Value, @"0x(?<id>[0-9A-Fa-f]+):\s*function\s*\([^)]*\)\s*\{");
-
-            foreach (Match fm in funcMatches) {
-                string idStr = fm.Groups["id"].Value;
-                int startIdx = fm.Index + fm.Length;
-                int depth = 1, endIdx = startIdx;
-                bool inStr = false; char qChar = '\0';
-
-                while (endIdx < logicMatch.Groups[1].Value.Length) {
-                    char c = logicMatch.Groups[1].Value[endIdx];
-                    if (inStr) {
-                        if (c == '\\' && endIdx + 1 < logicMatch.Groups[1].Value.Length) endIdx++;
-                        else if (c == qChar) inStr = false;
-                    } else {
-                        if (c == '"' || c == '\'') { inStr = true; qChar = c; }
-                        else if (c == '{') depth++;
-                        else if (c == '}') { depth--; if (depth == 0) break; }
+            var sn2Match = Regex.Match(jsSource, @"const\s+sn2\s*=\s*[""'](.*?)[""'];");
+            HashSet<uint> sn2Set = new HashSet<uint>();
+            if (sn2Match.Success) {
+                string[] sn2Words = sn2Match.Groups[1].Value.Split(new char[] { '|' }, StringSplitOptions.RemoveEmptyEntries);
+                foreach (string w in sn2Words) {
+                    if (w.Length == 2) {
+                        sn2Set.Add(((uint)w[0] << 16) | w[1]);
                     }
-                    endIdx++;
+                }
+            }
+
+            var entryMatches = Regex.Matches(jsSource, @"[""']?(?<id>0x[0-9A-Fa-f]+|[^""'\s\[\]:,])[""']?\s*:\s*\[(?<rules>.*?)\]\s*(?=[,}])", RegexOptions.Singleline);
+
+            foreach (Match entry in entryMatches) {
+                string idStr = entry.Groups["id"].Value;
+                char anchorChar = idStr.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? 
+                                  (char)System.Convert.ToInt32(idStr.Substring(2), 16) : idStr[0];
+                string rulesRaw = entry.Groups["rules"].Value;
+
+                var ruleMatches = Regex.Matches(rulesRaw, @"[""'](?<rule>[^""']+)[""']");
+                List<ContextRule> orderedRules = new List<ContextRule>();
+
+                foreach (Match rm in ruleMatches) {
+                    string line = rm.Groups["rule"].Value.Trim();
+                    if (string.IsNullOrEmpty(line)) continue;
+
+                    int arrowIdx = line.IndexOf("=>");
+                    if (arrowIdx == -1) continue;
+
+                    string conditionPart = line.Substring(0, arrowIdx).Trim();
+                    string targetPart = line.Substring(arrowIdx + 2).Trim();
+
+                    ContextRule rule = new ContextRule();
+                    rule.Target = targetPart;
+
+                    if (conditionPart.StartsWith("default")) {
+                        orderedRules.Add(rule);
+                        continue;
+                    }
+
+                    string[] condParts = conditionPart.Split(new char[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                    foreach (string condStr in condParts) {
+                        ContextCondition cond = new ContextCondition();
+                        string temp = condStr.Trim();
+
+                        if (temp.StartsWith("!")) { cond.IsExclude = true; temp = temp.Substring(1); }
+
+                        int colonIdx = temp.IndexOf(':');
+                        if (colonIdx == -1) continue;
+
+                        string offsetStr = temp.Substring(0, colonIdx).Trim();
+                        cond.CharSet = temp.Substring(colonIdx + 1).Trim();
+
+                        if (offsetStr.StartsWith("+")) offsetStr = offsetStr.Substring(1);
+                        int.TryParse(offsetStr, out cond.Offset);
+
+                        if (cond.CharSet == "@sn2") {
+                            cond.IsSn2 = true;
+                        } else {
+                            cond.CharSet = cond.CharSet.Replace("@m", mVal).Replace("@s", " \r\n");
+                        }
+
+                        rule.Conditions.Add(cond);
+                    }
+                    orderedRules.Add(rule);
                 }
 
-                string body = logicMatch.Groups[1].Value.Substring(startIdx, endIdx - startIdx);
-                body = Regex.Replace(body, @"//.*?\n", "\n");
-                body = body.Replace("\r", " ").Replace("\n", " ");
-
-                body = body.Replace("n===\"色\"==-1", "n!=\"色\""); 
-                body = Regex.Replace(body, @"t\.charAt\(([^)]+)\)\s*\|\|\s*[""']\s?[""']", "C(t, $1)");
-                body = Regex.Replace(body, @"t\.charAt\(([^)]+)\)", "C(t, $1)");
-                body = body.Replace("===", "==").Replace("!==", "!=");
-                body = Regex.Replace(body, @"\.indexOf\(([^)]+)\)", ".IndexOf($1, StringComparison.Ordinal)");
-                body = body.Replace("var ", "string ");
-                cases.AppendLine(string.Format("case 0x{0}: {{ {1} break; }}", idStr, body));
-                HasContextLogic[System.Convert.ToInt32(idStr, 16)] = true;
+                if (orderedRules.Count > 0) {
+                    FastContextRules[anchorChar] = orderedRules;
+                    HasContextLogic[anchorChar] = true;
+                }
             }
-            // 零分配記憶體快取
-            string code = "using System;\npublic class DynamicLogic {\n" +
-                "  static string[] cCache = new string[65536];\n" +
-                "  static DynamicLogic() { for(int i=0; i<65536; i++) cCache[i] = ((char)i).ToString(); }\n" +
-                "  string m = \"" + safeM + "\";\n" +
-                "  string sn2 = \"" + safeSn2 + "\";\n" +
-                "  string C(string t, int i) { return (i >= 0 && i < t.Length) ? cCache[t[i]] : \" \"; }\n" +
-                "  public string Run(int c, int i, string t) {\n" +
-                "    switch(c) {\n" + cases.ToString() + "    }\n" +
-                "    return null;\n  }\n}";
 
-            CompilerParameters cp = new CompilerParameters();
-            cp.GenerateInMemory = true;
-            cp.ReferencedAssemblies.Add("System.dll");
-            CompilerResults cr = new CSharpCodeProvider().CompileAssemblyFromSource(cp, code);
+            LogicDelegate = (int c, int idx, string text) => {
+                char ch = (char)c;
+                if (!FastContextRules.ContainsKey(ch)) return null;
 
-            if (cr.Errors.HasErrors) throw new Exception("ContextLogic Compile Error: " + cr.Errors[0].ErrorText);
+                List<ContextRule> rules = FastContextRules[ch];
+                int rulesCount = rules.Count;
 
-            LogicInstance = cr.CompiledAssembly.CreateInstance("DynamicLogic");
-            MethodInfo mi = cr.CompiledAssembly.GetType("DynamicLogic").GetMethod("Run");
-            LogicDelegate = (Func<int, int, string, string>)Delegate.CreateDelegate(typeof(Func<int, int, string, string>), LogicInstance, mi);
+                for (int r = 0; r < rulesCount; r++) {
+                    ContextRule rule = rules[r];
+                    List<ContextCondition> conds = rule.Conditions;
+                    int condsCount = conds.Count;
+                    bool isMatch = true;
+
+                    for (int i = 0; i < condsCount; i++) {
+                        ContextCondition cond = conds[i];
+                        int targetIdx = idx + cond.Offset;
+
+                        if (cond.IsSn2) {
+                            bool exists = false;
+                            if (targetIdx >= 0 && targetIdx + 1 < text.Length) {
+                                uint key = ((uint)text[targetIdx] << 16) | text[targetIdx + 1];
+                                if (sn2Set.Contains(key)) exists = true;
+                            }
+                            if (cond.IsExclude) { if (exists) { isMatch = false; break; } } 
+                            else { if (!exists) { isMatch = false; break; } }
+                        } else {
+                            char testChar = (targetIdx >= 0 && targetIdx < text.Length) ? text[targetIdx] : ' ';
+                            bool charExists = false;
+                            for (int k = 0; k < cond.CharSet.Length; k++) {
+                                if (cond.CharSet[k] == testChar) { charExists = true; break; }
+                            }
+                            if (cond.IsExclude) { if (charExists) { isMatch = false; break; } } 
+                            else { if (!charExists) { isMatch = false; break; } }
+                        }
+                    }
+                    if (isMatch) return rule.Target;
+                }
+                return null;
+            };
         }
 
         static void AddWord(TrieNode[] roots, string k, string v, double logFreq = -18.0, byte flag = 0) {
@@ -1600,6 +1953,7 @@ static bool TryApplyPhraseLogic(int i, int start, int len, string input, ref int
             for (int i = 1; i < k.Length; i++) {
                 if (c.Children == null) c.Children = new Dictionary<char, TrieNode>();
                 if (!c.Children.ContainsKey(k[i])) c.Children[k[i]] = new TrieNode();
+                c.FastMask |= 1UL << (k[i] & 63);
                 c = c.Children[k[i]];
             } 
             if (v != null) {

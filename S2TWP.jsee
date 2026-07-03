@@ -4,12 +4,12 @@
 #icon="S2TWP.ico"
 
 /**
- * Project: OpenCC for EmEditor Macro v0.42
+ * Project: OpenCC for EmEditor Macro v0.43
  * Author: skyuns (https://github.com/skyuns/EmEditor-OpenCC-Macro 備援: https://gitcode.com/skyuns/EmEditor-OpenCC-Macro)
  * This macro provides foundational conversion based on the OpenCC core lexicon. Note that results may vary from the official implementation.
  * Data Source: OpenCC (https://github.com/BYVoid/OpenCC)
  * License: Apache License 2.0
- * Environment: Windows 11 + EmEditor 26.1.1 (較舊版本可能存在相容性問題)
+ * Environment: Windows 11 + EmEditor 26.2.0 (較舊版本可能存在相容性問題)
  * 轉換流程：1. 讀取字典映射 -> 2. 封裝 Trie 字典樹 -> 3. 結巴 (Jieba) 路由計算與 Vision 視界權重 -> 4. 路由引導與 FMM 匹配
  * [Disclaimer] The simulator comparison feature is a non-official API implementation provided by Gemini for personal research; users assume all risks regarding potential IP rate-limiting. Default is disabled.
  */
@@ -28,7 +28,7 @@ const Ctrl_Action = "Use_Jieba"; // Ctrl 鍵偵測行為設定 ("Simulator_MODE"
 const isSegmentDisplay = (shell.GetKeyState(0x14) & 1); // 結巴分詞顯示開關 (使用 Caps Lock 作為實體開關)
 const HMM_Word_limit = 50; // HMM 模型啟動上限字數
 
-// --- [區塊 A：大陸用語 -> 台灣用語 (TWPhrases.txt) 更新至 2026-06-12] ---
+// --- [區塊 A：大陸用語 -> 台灣用語 (TWPhrases.txt) 更新至 2026-06-25] ---
 const rawPhraseData = `
 # Open Chinese Convert (OpenCC) Dictionary
 # File: TWPhrases.txt
@@ -307,6 +307,7 @@ U盤	隨身碟
 嵌套	巢狀
 巴巴多斯	巴貝多
 巴布亞新幾內亞	巴布亞紐幾內亞
+市場營銷	市場行銷
 布列茲	布萊茲
 布基納法索	布吉納法索
 布爾	布林
@@ -431,7 +432,6 @@ U盤	隨身碟
 有損壓縮	有失真壓縮
 服務器	伺服器
 本地代碼	原生代碼
-李彥宏	李彥宏
 析構函數	解構函式 解構子
 枚舉	列舉
 柏遼茲	白遼士
@@ -806,7 +806,6 @@ U盤	隨身碟
 高級選項	進階選項
 高速緩存	快取記憶體
 鮑羅丁	包羅定
-黃宏	黃宏
 黃體酮	黃體素
 黑客	駭客
 默認	預設
@@ -1204,12 +1203,46 @@ async function compareWithGoogle(origText, macroText, modeNames) {
     }
 }
 
+// NFC 正規化生成的對齊字串
+const RawBmpHex = "8C48,66F4,8ECA,8CC8,6ED1,4E32,53E5,9F9C,9F9C,5951,91D1,5587,5948,61F6,7669,7F85,863F,87BA,88F8,908F,6A02,6D1B,70D9,73DE,843D,916A,99F1,4E82,5375,6B04,721B,862D,9E1E,5D50,6FEB,85CD,8964,62C9,81D8,881F,5ECA,6717,6D6A,72FC,90CE,4F86,51B7,52DE,64C4,6AD3,7210,76E7,8001,8606,865C,8DEF,9732,9B6F,9DFA,788C,797F,7DA0,83C9,9304,9E7F,8AD6,58DF,5F04,7C60,807E,7262,78CA,8CC2,96F7,58D8,5C62,6A13,6DDA,6F0F,7D2F,7E37,964B,52D2,808B,51DC,51CC,7A1C,7DBE,83F1,9675,8B80,62CF,6A02,8AFE,4E39,5BE7,6012,7387,7570,5317,78FB,4FBF,5FA9,4E0D,6CCC,6578,7D22,53C3,585E,7701,8449,8AAA,6BBA,8FB0,6C88,62FE,82E5,63A0,7565,4EAE,5169,51C9,6881,7CE7,826F,8AD2,91CF,52F5,5442,5973,5EEC,65C5,6FFE,792A,95AD,9A6A,9E97,9ECE,529B,66C6,6B77,8F62,5E74,6190,6200,649A,6F23,7149,7489,79CA,7DF4,806F,8F26,84EE,9023,934A,5217,52A3,54BD,70C8,88C2,8AAA,5EC9,5FF5,637B,6BAE,7C3E,7375,4EE4,56F9,5BE7,5DBA,601C,73B2,7469,7F9A,8046,9234,96F6,9748,9818,4F8B,79AE,91B4,96B8,60E1,4E86,50DA,5BEE,5C3F,6599,6A02,71CE,7642,84FC,907C,9F8D,6688,962E,5289,677B,67F3,6D41,6E9C,7409,7559,786B,7D10,985E,516D,622E,9678,502B,5D19,6DEA,8F2A,5F8B,6144,6817,7387,9686,5229,540F,5C65,6613,674E,68A8,6CE5,7406,75E2,7F79,88CF,88E1,91CC,96E2,533F,6EBA,541D,71D0,7498,85FA,96A3,9C57,9E9F,6797,6DCB,81E8,7ACB,7B20,7C92,72C0,7099,8B58,4EC0,8336,523A,5207,5EA6,62D3,7CD6,5B85,6D1E,66B4,8F3B,884C,964D,898B,5ED3,5140,55C0,0000,0000,585A,0000,6674,0000,0000,51DE,732A,76CA,793C,795E,7965,798F,9756,7CBE,7FBD,0000,8612,0000,8AF8,0000,0000,9038,90FD,0000,0000,0000,98EF,98FC,9928,9DB4,90DE,96B7,4FAE,50E7,514D,52C9,52E4,5351,559D,5606,5668,5840,58A8,5C64,5C6E,6094,6168,618E,61F2,654F,65E2,6691,6885,6D77,6E1A,6F22,716E,722B,7422,7891,793E,7949,7948,7950,7956,795D,798D,798E,7A40,7A81,7BC0,7DF4,7E09,7E41,7F72,8005,81ED,8279,8279,8457,8910,8996,8B01,8B39,8CD3,8D08,8FB6,9038,96E3,97FF,983B,6075,242EE,8218,0000,0000,4E26,51B5,5168,4F80,5145,5180,52C7,52FA,559D,5555,5599,55E2,585A,58B3,5944,5954,5A62,5B28,5ED2,5ED9,5F69,5FAD,60D8,614E,6108,618E,6160,61F2,6234,63C4,641C,6452,6556,6674,6717,671B,6756,6B79,6BBA,6D41,6EDB,6ECB,6F22,701E,716E,77A7,7235,72AF,732A,7471,7506,753B,761D,761F,76CA,76DB,76F4,774A,7740,78CC,7AB1,7BC0,7C7B,7D5B,7DF4,7F3E,8005,8352,83EF,8779,8941,8986,8996,8ABF,8AF8,8ACB,8B01,8AFE,8AED,8B39,8B8A,8D08,8F38,9072,9199,9276,967C,96E3,9756,97DB,97FF,980B,983B,9B12,9F9C,2284A,22844,233D5,3B9D,4018,4039,25249,25CD0,27ED3,9F43,9F8E";
+const RawP2Hex  = "4E3D,4E38,4E41,20122,4F60,4FAE,4FBB,5002,507A,5099,50E7,50CF,349E,2063A,514D,5154,5164,5177,2051C,34B9,5167,518D,2054B,5197,51A4,4ECC,51AC,51B5,291DF,51F5,5203,34DF,523B,5246,5272,5277,3515,52C7,52C9,52E4,52FA,5305,5306,5317,5349,5351,535A,5373,537D,537F,537F,537F,20A2C,7070,53CA,53DF,20B63,53EB,53F1,5406,549E,5438,5448,5468,54A2,54F6,5510,5553,5563,5584,5584,5599,55AB,55B3,55C2,5716,5606,5717,5651,5674,5207,58EE,57CE,57F4,580D,578B,5832,5831,58AC,214E4,58F2,58F7,5906,591A,5922,5962,216A8,216EA,59EC,5A1B,5A27,59D8,5A66,36EE,36FC,5B08,5B3E,5B3E,219C8,5BC3,5BD8,5BE7,5BF3,21B18,5BFF,5C06,5F53,5C22,3781,5C60,5C6E,5CC0,5C8D,21DE4,5D43,21DE6,5D6E,5D6B,5D7C,5DE1,5DE2,382F,5DFD,5E28,5E3D,5E69,3862,22183,387C,5EB0,5EB3,5EB6,5ECA,2A392,5EFE,22331,22331,8201,5F22,5F22,38C7,232B8,261DA,5F62,5F6B,38E3,5F9A,5FCD,5FD7,5FF9,6081,393A,391C,6094,226D4,60C7,6148,614C,614E,614C,617A,618E,61B2,61A4,61AF,61DE,61F2,61F6,6210,621B,625D,62B1,62D4,6350,22B0C,633D,62FC,6368,6383,63E4,22BF1,6422,63C5,63A9,3A2E,6469,647E,649D,6477,3A6C,654F,656C,2300A,65E3,66F8,6649,3B19,6691,3B08,3AE4,5192,5195,6700,669C,80AD,43D9,6717,671B,6721,675E,6753,233C3,3B49,67FA,6785,6852,6885,2346D,688E,681F,6914,3B9D,6942,69A3,69EA,6AA8,236A3,6ADB,3C18,6B21,238A7,6B54,3C4E,6B72,6B9F,6BBA,6BBB,23A8D,21D0B,23AFA,6C4E,23CBC,6CBF,6CCD,6C67,6D16,6D3E,6D77,6D41,6D69,6D78,6D85,23D1E,6D34,6E2F,6E6E,3D33,6ECB,6EC7,23ED1,6DF9,6F6E,23F5E,23F8E,6FC6,7039,701E,701B,3D96,704A,707D,7077,70AD,20525,7145,24263,719C,243AB,7228,7235,7250,24608,7280,7295,24735,24814,737A,738B,3EAC,73A5,3EB8,3EB8,7447,745C,7471,7485,74CA,3F1B,7524,24C36,753E,24C92,7570,2219F,7610,24FA1,24FB8,25044,3FFC,4008,76F4,250F3,250F2,25119,25133,771E,771F,771F,774A,4039,778B,4046,4096,2541D,784E,788C,78CC,40E3,25626,7956,2569A,256C5,798F,79EB,412F,7A40,7A4A,7A4F,2597C,25AA7,25AA7,7AEE,4202,25BAB,7BC6,7BC9,4227,25C80,7CD2,42A0,7CE8,7CE3,7D00,25F86,7D63,4301,7DC7,7E02,7E45,4334,26228,26247,4359,262D9,7F7A,2633E,7F95,7FFA,8005,264DA,26523,8060,265A8,8070,2335F,43D5,80B2,8103,440B,813E,5AB5,267A7,267B5,23393,2339C,8201,8204,8F9E,446B,8291,828B,829D,52B3,82B1,82B3,82BD,82E6,26B3C,82E5,831D,8363,83AD,8323,83BD,83E7,8457,8353,83CA,83CC,83DC,26C36,26D6B,26CD5,452B,84F1,84F3,8516,273CA,8564,26F2C,455D,4561,26FB1,270D2,456B,8650,865C,8667,8669,86A9,8688,870E,86E2,8779,8728,876B,8786,45D7,87E1,8801,45F9,8860,8863,27667,88D7,88DE,4635,88FA,34BB,278AE,27966,46BE,46C7,8AA0,8AED,8B8A,8C55,27CA8,8CAB,8CC1,8D1B,8D77,27F2F,20804,8DCB,8DBC,8DF0,208DE,8ED4,8F38,285D2,285ED,9094,90F1,9111,2872E,911B,9238,92D7,92D8,927C,93F9,9415,28BFA,958B,4995,95B7,28D77,49E6,96C3,5DB2,9723,29145,2921A,4A6E,4A76,97E0,2940A,4AB2,29496,980B,980B,9829,295B6,98E2,4B33,9929,99A7,99C2,99FE,4BCE,29B30,9B12,9C40,9CFD,4CCE,4CED,9D67,2A0CE,4CF8,2A105,2A20E,2A291,9EBB,4D56,9EF9,9EFE,9F05,9F0F,9F16,9F3B,2A600";
+
+const FastReplaceMap = new Map();
+let FastReplaceMapReady = false;
+
+function InitializeReplaceMap() {
+    if (FastReplaceMapReady) return;
+
+    // 解析 BMP 平面資料 (從 0xF900 開始)
+    var bmpItems = RawBmpHex.split(",");
+    for (var i = 0; i < bmpItems.length; i++) {
+        var item = bmpItems[i];
+        if (item === "0000" || !item) continue;
+        var originalCodePoint = 0xF900 + i;
+        var targetCodePoint = parseInt(item, 16);
+        FastReplaceMap.set(originalCodePoint, targetCodePoint);
+    }
+
+    // 解析 Plane 2 平面資料 (從 0x2F800 開始)
+    var p2Items = RawP2Hex.split(",");
+    for (var i = 0; i < p2Items.length; i++) {
+        var item = p2Items[i];
+        if (item === "0000" || !item) continue;
+        var originalCodePoint = 0x2F800 + i;
+        var targetCodePoint = parseInt(item, 16);
+        FastReplaceMap.set(originalCodePoint, targetCodePoint);
+    }
+    FastReplaceMapReady = true;
+}
+
 // --- [##核心邏輯區##] ---
 function main() {
     // 0. 偵測模式 與 控制鍵狀態
     const isShiftPressed = (shell.GetKeyState(0x10) < 0); // 按住 Shift : 僅使用標準詞組[區塊 A] 與單字 [區塊 C]，忽略 [視界邏輯]、[語法邏輯]、[區塊 B]、[區塊 D]、[區塊 E]、[區塊 F]
     const isCtrlPressed = (shell.GetKeyState(0x11) < 0); // 按住 Ctrl : 觸發 Ctrl_Action 設定的功能
-    const isAltPressed = (shell.GetKeyState(0x12) < 0); // 按住 Alt : 忽略 [區塊 D：台灣字形修正]、[區塊 F：台灣慣用詞字形修正]
+    const isAltPressed = (shell.GetKeyState(0x12) < 0); // 按住 Alt : 忽略 [區塊 D：台灣字形修正]、[區塊 F：台灣慣用詞字形修正]、[相容字形修正]
+
+    InitializeReplaceMap();
 
     let isSimulate = (typeof Simulator_MODE !== "undefined" && Simulator_MODE === true);
     let isJiebaActive = (typeof Use_Jieba !== "undefined" && Use_Jieba === true);
@@ -1597,7 +1630,7 @@ if (!isCSVCellSel && (isFilterMode || isMultiSel) && selectedLines > 60000) {
         `⏳ 建立字典树引擎，${msgModeNameSC} 处理中...`
     );
 
-// 🌟 連接外部詞典 (根據模式切換：Jieba 為 C# 優先，其餘為 JS 優先)
+// 連接外部詞典 (根據模式切換：Jieba 為 C# 優先，其餘為 JS 優先)
     let currentPhraseData, currentCharData, currentTWVariants, currentExceptionData, currentPhraseExpandedData, currentJiebaData, currentUserDictData, currentHmmData, currentTWVariantsPhrases;
     let dictLoadedFromExe = false;
 
@@ -1622,7 +1655,6 @@ if (!isCSVCellSel && (isFilterMode || isMultiSel) && selectedLines > 60000) {
                 if (newData.length >= 6) currentJiebaData = newData[5]; 
                 if (newData.length >= 7) currentUserDictData = newData[6];
                 if (newData.length >= 8) currentHmmData = newData[7];
-                // 接收外部讀取的 TWVariantsPhrases.txt 資料 (第 9 區塊)
                 if (newData.length >= 9) currentTWVariantsPhrases = newData[8];
                 return true;
             };
@@ -1690,7 +1722,7 @@ if (!isCSVCellSel && (isFilterMode || isMultiSel) && selectedLines > 60000) {
 
     if (typeof PhraseExpandedData !== "undefined" && !PhraseExpandedData) currentPhraseExpandedData = "";
 
-    // 🌟 最終檢測：若開啟結巴功能但未讀取到詞典，則關閉旗標
+    // 若開啟結巴功能但未讀取到詞典，則關閉旗標
     if (isJiebaActive && !currentJiebaData) isJiebaActive = false;
 
     const variantMap = new Map();
@@ -1700,7 +1732,7 @@ if (!isCSVCellSel && (isFilterMode || isMultiSel) && selectedLines > 60000) {
     const exceptionMap = new Map();
 
     const reverseCharMap = new Map();
-    const twPhrasesMap = new Map(); // 儲存 TWVariantsPhrases 裡的映射
+    const twPhrasesMap = new Map();
 
     if (!isShiftPressed && typeof currentExceptionData !== "undefined" && currentExceptionData) {
     try {
@@ -1748,7 +1780,6 @@ if (!isCSVCellSel && (isFilterMode || isMultiSel) && selectedLines > 60000) {
     } catch(e) {}
 }
 
-    // 預先載入詞庫至 twPhrasesMap 
     if (needVariants && typeof currentTWVariantsPhrases !== "undefined" && currentTWVariantsPhrases) {
         try {
             const linesTWP = currentTWVariantsPhrases.split("\n");
@@ -1812,7 +1843,7 @@ if (!isCSVCellSel && (isFilterMode || isMultiSel) && selectedLines > 60000) {
             // 邏輯介入：滿足 CharactersExt 且前一行是 @tofu-risk
             if (typeof CharactersExt !== "undefined" && CharactersExt === true && lastLineWasTofuRisk) {
                 let values = rawTarget.split(" ");
-                // 如果第一個字跟 key 相同，就切片取「下一個字」（後面的擴充字）
+                // 如果第一個字跟 key 相同，就切片取後面的擴充字
                 if (values.length > 0 && values[0] === key) {
                     values = values.slice(1);
                 }
@@ -1894,15 +1925,13 @@ if (!isCSVCellSel && (isFilterMode || isMultiSel) && selectedLines > 60000) {
         }
     }
 
-    let logistics = [typeof ContextLogic !== "undefined" && ContextLogic, typeof ContextLogic_T2S !== "undefined" && ContextLogic_T2S];
-    for (let j = 0; j < logistics.length; j++) {
-        let obj = logistics[j];
-        if (obj) {
-            for (let k in obj) {
-                let charKey = String.fromCharCode(Number(k));
-                if (!finalDict.has(charKey)) {
-                    finalDict.set(charKey, charKey);
-                }
+    let logicDataObj = typeof ContextLogicData !== "undefined" ? ContextLogicData : null;
+    if (logicDataObj && (effectiveContextLogic || effectiveContextLogic_T2S)) {
+        for (let k in logicDataObj) {
+            let code = k.startsWith("0x") ? parseInt(k, 16) : k.charCodeAt(0);
+            let charKey = String.fromCharCode(code);
+            if (!finalDict.has(charKey)) {
+                finalDict.set(charKey, charKey);
             }
         }
     }
@@ -1920,21 +1949,107 @@ if (!isCSVCellSel && (isFilterMode || isMultiSel) && selectedLines > 60000) {
             this.v = null;
             this.o = null;
             this.lf = -18.0; // Jieba 分詞對數頻率
+            this.mask1 = 0;
+            this.mask2 = 0;
         }
     }
+
+    const qBuildMask = (parentNode, nextCharCode) => {
+        let bitPos = nextCharCode & 63;
+        if (bitPos < 32) {
+            parentNode.mask1 |= (1 << bitPos);
+        } else {
+            parentNode.mask2 |= (1 << (bitPos - 32));
+        }
+    };
+
+    const qCheckMask = (currentNode, nextCharCode) => {
+        let bitPos = nextCharCode & 63;
+        if (bitPos < 32) {
+            return (currentNode.mask1 & (1 << bitPos)) !== 0;
+        } else {
+            return (currentNode.mask2 & (1 << (bitPos - 32))) !== 0;
+        }
+    };
 
     const rootNodes = new Array(65536);
 
-    // 將 PhraseLogic 的首字在 Trie 根節點標記
-    if (typeof PhraseLogic !== "undefined") {
-        for (let pKey in PhraseLogic) {
-            if (pKey.length > 0) {
-                let code = pKey.charCodeAt(0);
-                if (!rootNodes[code]) rootNodes[code] = new TrieNode();
-                rootNodes[code].hasPhrase = true;
+// 將 PhraseLogic 的首字在 Trie 根節點標記與預編譯
+if (typeof PhraseLogic !== "undefined") {
+    const isS2TWPMode = (CURRENT_MODE === "S2TWP" || (typeof isS2TVariant !== "undefined" && isS2TVariant));
+
+    for (let pKey in PhraseLogic) {
+        if (pKey.length > 0) {
+            let code = pKey.charCodeAt(0);
+            if (!rootNodes[code]) rootNodes[code] = new TrieNode();
+            rootNodes[code].hasPhrase = true;
+            if (!rootNodes[code].phraseRules) rootNodes[code].phraseRules = [];
+
+            let originStr = PhraseLogic[pKey];
+            let lThres = 4;
+            let currentWinSize = 6;
+            let pBarrierActive = false;
+
+            if (isS2TWPMode && typeof variantMap !== "undefined" && variantMap.size > 0) {
+                let headMatch = originStr.match(/^([^\s]+)\s+([^\s\[]+)/);
+                if (headMatch) {
+                    let notePart = headMatch[1];
+                    let targetPart = headMatch[2];
+                    let washedTarget = "";
+                    for (let tc of targetPart) { washedTarget += variantMap.has(tc) ? variantMap.get(tc) : tc; }
+                    originStr = notePart + " " + washedTarget + originStr.substring(headMatch[0].length);
+                    PhraseLogic[pKey] = originStr;
+                }
             }
+
+            let paramMatch = originStr.match(/\{([1-9])\s*,\s*([01])(?:\s*,\s*([4-9]))?\}/);
+            let ruleStr = originStr;
+            if (paramMatch) {
+                currentWinSize = parseInt(paramMatch[1], 10);
+                pBarrierActive = parseInt(paramMatch[2], 10) === 0;
+                if (paramMatch[3] !== undefined) lThres = parseInt(paramMatch[3], 10);
+                ruleStr = ruleStr.substring(0, paramMatch.index).trim();
+            }
+
+            if (!rootNodes[code].maxThres || lThres > rootNodes[code].maxThres) {
+                rootNodes[code].maxThres = lThres;
+            }
+
+            let partsOpen = ruleStr.split("[");
+            let alternatives = partsOpen[0].split(" ");
+            let overTarget = alternatives[1] || alternatives[0];
+            let leftTagsRaw = partsOpen[1].split("]")[0].split("|");
+            let rightTagsRaw = partsOpen[2].split("]")[0].split("|");
+
+            const parseTags = (tags) => {
+                let res = [];
+                for (let i = 0; i < tags.length; i++) {
+                    let t = tags[i];
+                    if (t !== "") {
+                        let isEx = t.charAt(0) === "!";
+                        let raw = isEx ? t.substring(1) : t;
+                        let hasAt = raw.charAt(0) === "@";
+                        if (hasAt) raw = raw.substring(1);
+                        res.push({ str: raw, len: raw.length, isEx: isEx, hasAt: hasAt, empty: false });
+                    } else {
+                        res.push({ empty: true });
+                    }
+                }
+                return res;
+            };
+
+            rootNodes[code].phraseRules.push({
+                key: pKey,
+                keyLen: pKey.length,
+                winSize: currentWinSize,
+                barrierActive: pBarrierActive,
+                target: overTarget,
+                leftTags: parseTags(leftTagsRaw),
+                rightTags: parseTags(rightTagsRaw)
+            });
         }
     }
+}
 
     for (let [key, target] of finalDict) {
         if (!key) continue;
@@ -1947,6 +2062,7 @@ if (!isCSVCellSel && (isFilterMode || isMultiSel) && selectedLines > 60000) {
 
         for (let j = 1; j < key.length; j++) {
             let code = key.charCodeAt(j);
+            qBuildMask(node, code);
             let nextNode = node.c.get(code);
             if (!nextNode) {
                 nextNode = new TrieNode();
@@ -1991,6 +2107,7 @@ if (!isCSVCellSel && (isFilterMode || isMultiSel) && selectedLines > 60000) {
                 }
                 for (let j = 1; j < word.length; j++) {
                     let code = word.charCodeAt(j);
+                    qBuildMask(node, code);
                     let nextNode = node.c.get(code);
                     if (!nextNode) {
                         nextNode = new TrieNode();
@@ -2131,11 +2248,95 @@ if (!isCSVCellSel && (isFilterMode || isMultiSel) && selectedLines > 60000) {
 
     const activeLogicArr = new Array(65536);
     let hasLogic = false;
-    const currentLogicObj = (effectiveContextLogic && typeof ContextLogic !== "undefined") ? ContextLogic : ((effectiveContextLogic_T2S && typeof ContextLogic_T2S !== "undefined") ? ContextLogic_T2S : null);
-    if (currentLogicObj !== null) {
+
+    if (logicDataObj && (effectiveContextLogic || effectiveContextLogic_T2S)) {
         hasLogic = true;
-        for (let k in currentLogicObj) {
-            activeLogicArr[k] = currentLogicObj[k];
+        const mVal = typeof m !== "undefined" ? m : "";
+        const sn2Raw = typeof sn2 !== "undefined" ? sn2 : "";
+
+        const sn2Set = new Set();
+        let sn2Words = sn2Raw.split("|");
+        for (let w = 0; w < sn2Words.length; w++) {
+            if (sn2Words[w].length === 2) sn2Set.add(sn2Words[w]);
+        }
+
+        for (let key in logicDataObj) {
+            let anchorCode = key.startsWith("0x") ? parseInt(key, 16) : key.charCodeAt(0);
+            let rulesRaw = logicDataObj[key];
+            let compiledRules = [];
+
+            // 預先解析規則字串為物件
+            for (let r = 0; r < rulesRaw.length; r++) {
+                let line = rulesRaw[r].trim();
+                if (!line) continue;
+
+                let arrowIdx = line.indexOf("=>");
+                if (arrowIdx === -1) continue;
+
+                let condPart = line.substring(0, arrowIdx).trim();
+                let targetPart = line.substring(arrowIdx + 2).trim();
+
+                if (condPart.startsWith("default")) {
+                    compiledRules.push({ isDefault: true, target: targetPart });
+                    continue;
+                }
+
+                let conds = [];
+                let condParts = condPart.split(" ");
+                for (let c = 0; c < condParts.length; c++) {
+                    let temp = condParts[c].trim();
+                    if (!temp) continue;
+
+                    let isEx = false;
+                    if (temp.charAt(0) === "!") { isEx = true; temp = temp.substring(1); }
+
+                    let colonIdx = temp.indexOf(":");
+                    if (colonIdx === -1) continue;
+
+                    let offset = parseInt(temp.substring(0, colonIdx), 10);
+                    let charSet = temp.substring(colonIdx + 1);
+                    let isSn2 = false;
+
+                    if (charSet === "@sn2") {
+                        isSn2 = true;
+                    } else {
+
+                        charSet = charSet.replace(/@m/g, mVal).replace(/@s/g, " \r\n");
+                    }
+                    conds.push({ offset: offset, charSet: charSet, isExclude: isEx, isSn2: isSn2 });
+                }
+                compiledRules.push({ isDefault: false, conds: conds, target: targetPart });
+            }
+
+            activeLogicArr[anchorCode] = function(idx, text) {
+                for (let r = 0; r < compiledRules.length; r++) {
+                    let rule = compiledRules[r];
+                    if (rule.isDefault) return rule.target;
+
+                    let isMatch = true;
+                    for (let c = 0; c < rule.conds.length; c++) {
+                        let cond = rule.conds[c];
+                        let targetIdx = idx + cond.offset;
+
+                        if (cond.isSn2) {
+                            let exists = false;
+                            if (targetIdx >= 0 && targetIdx + 1 < text.length) {
+                                let sn2Key = text.substring(targetIdx, targetIdx + 2);
+                                if (sn2Set.has(sn2Key)) exists = true;
+                            }
+                            if (cond.isExclude) { if (exists) { isMatch = false; break; } }
+                            else { if (!exists) { isMatch = false; break; } }
+                        } else {
+                            let testChar = (targetIdx >= 0 && targetIdx < text.length) ? text.charAt(targetIdx) : ' ';
+                            let charExists = cond.charSet.indexOf(testChar) !== -1;
+                            if (cond.isExclude) { if (charExists) { isMatch = false; break; } }
+                            else { if (!charExists) { isMatch = false; break; } }
+                        }
+                    }
+                    if (isMatch) return rule.target;
+                }
+                return null;
+            };
         }
     }
 
@@ -2148,22 +2349,70 @@ const vitSpBuf = new Int32Array(HMM_MAX_WORDS);
 const doConvert = (srcText) => {
         let textLen = srcText.length;
 
-        if (typeof isSegmentDisplay !== "undefined" && isSegmentDisplay) {
+        if (typeof isSegmentDisplay !== "undefined" && isSegmentDisplay && isJiebaActive) {
             if (selectedLines > 10) {
                 var sLines = _L(
                     "Jieba Segment Display Mode (Caps Lock ON) is limited to 10 lines.",
-                    "結巴分詞顯示模式 (Caps Lock 開啟) 限制為 10 行以內。",
-                    "结巴分词显示模式 (Caps Lock 开启) 限制为 10 行以内。"
+                    "結巴分詞顯示模式 (Caps Lock 已啟用) 限制為 10 行以內。",
+                    "结巴分词显示模式 (Caps Lock 已打开) 限制为 10 行以内。"
                 );
                 alert(sLines); ShowTip("", eeShowTipHide); Quit();
             }
             if (textLen > 200) {
                 var sChars = _L(
                     "Jieba Segment Display Mode (Caps Lock ON) is limited to 200 characters.",
-                    "結巴分詞顯示模式 (Caps Lock 開啟) 限制為 200 字元以內。",
-                    "结巴分词显示模式 (Caps Lock 开启) 限制为 200 字符以内。"
+                    "結巴分詞顯示模式 (Caps Lock 已啟用) 限制為 200 字元以內。",
+                    "结巴分词显示模式 (Caps Lock 已打开) 限制为 200 字符以内。"
                 );
                 alert(sChars); ShowTip("", eeShowTipHide); Quit();
+            }
+        }
+
+        // 相容字安全查表換字閘道 - V8 快取優化版
+        let compatReplaceCount = 0;
+        let hasCompat = false;
+
+        if (!isAltPressed) {
+            // 極速探查：0 開銷掃描 CJK 相容區
+            for (let k = 0; k < textLen; k++) {
+                let c = srcText.charCodeAt(k);
+                if ((c >= 0xF900 && c <= 0xFAFF) || (c >= 0xD840 && c <= 0xD87F)) {
+                    hasCompat = true;
+                    break;
+                }
+            }
+
+            // 動態指標重組
+            if (hasCompat) {
+                let cleanArr = [];
+                let lastIdx = 0;
+                let k = 0;
+
+                while (k < textLen) {
+                    let cp = srcText.codePointAt(k);
+                    let step = (cp > 0xFFFF) ? 2 : 1;
+
+                    if (cp >= 0xF900 && FastReplaceMap.has(cp)) {
+                        if (k > lastIdx) {
+                            cleanArr.push(srcText.substring(lastIdx, k));
+                        }
+
+                        let rep = FastReplaceMap.get(cp);
+                        cleanArr.push(String.fromCodePoint(rep));
+                        compatReplaceCount++;
+
+                        lastIdx = k + step;
+                    }
+                    k += step;
+                }
+
+                if (lastIdx < textLen) {
+                    cleanArr.push(srcText.substring(lastIdx, textLen));
+                }
+
+                srcText = cleanArr.join("");
+                textLen = srcText.length;
+                cleanArr = null;
             }
         }
 
@@ -2171,7 +2420,10 @@ const doConvert = (srcText) => {
         let out = [];
         let i = 0;
         let lastMatchEnd = 0;
-        let replaceCount = 0;
+
+        // 預載變更狀態
+        let replaceCount = compatReplaceCount;
+        let hasReplacements = hasCompat;
         const fastSkipLimit = (CURRENT_MODE === "S2TWP" || CURRENT_MODE === "TW2SP") ? 0x21 : 0x80;
 
         // 配置加分與懲罰常數 (權重控制面板)
@@ -2196,8 +2448,8 @@ const doConvert = (srcText) => {
         const FREQ_BONUS_LOW = 0.5; // 4~10次
         const FREQ_BONUS_FEW = 0.1; // 1~3次
 
-        const ONE_TO_MANY_S2T = "㐹万丑个丰了于云亘仆仇仑价仿伙余佛佣俊修借僵克党冬冲凄准凌几凶出划别刮制勋千升卜占卤卷厂历厘参发只台叶叹吁吃合吊同后向周咨咸咽哄哗唇啮喂噪回团困坛坝埙复夫夸奸姜娘娴宁它家尝尸尽局岩岳巨布帘席干并幸广庵弥弦当录彩征御志念恤恶愈愿戚才扎托扣折抵拐挂挨挽据搜摆斗旋昆暗曲术朱朴杆杠杯杰松板极柜栗核梁欲毁汇沈沾泛注涂涌淀游滟漓炼烟熏玩璇症皂矩确私秋种筑签系纤绱绷胄背胜胡脏腊腌膻致舍艳芸苏苔苹范荐荡荫药获蒙蔑虫蚝蜡蝎表袅裥证谥谷赝赞跖辟迹适郁酸采里鉴针钟钥钫钻铲链锫镋镎镢镰闲雕面须饥鹇洒虱湿袜";
-        const ONE_TO_MANY_T2S = "乾儘剋劃噁噹夥崙廬彷徵戰擣於瀋瀰牴畫瞭祇綵線薹藉蘋衹襬覆託諫諮譾買鉅鍊鍾鏇钁開閒阪靦韝願餘餬餱餵驄鵰麪麴麵麼麽齧";
+        const ONE_TO_MANY_S2T = "㐹万丑个丰了于云亘仆仇仑价仿伙余佛佣俊修借僵克党具冢冬冲凄准凌几凶出划别刮制勋千升卜占卤卷厂历厘参发只台叶叹吁吃合吊同后向吣呆周咨咸咽哄哗唇啮喂噪回团困坐坛坝坯埙堤复夫夸夹奸姜娘娴宁它家尝尸尽局岩岳巨布帘席干并幸广庵弥弦当录彩征径御志念恤恶愈愿戚扇才扎托扣折抵拐拿挂挨挽捆捍据搜摆斗斤斫旋昆暗曲札术朱朴杆杠杯杰松板极果枪柜栗核梁棱檗欲毁汇沈沾泛注浚涂涌淀游溪滟漓澄炼烟焰熏狸玩琅璇症皂矩确硷私秋种穗筑筱签糊系累纤绱绷耇胄背胜胡脏腊腌膻致舍艳芸苏苔苹范荐荡荫药获蒙蔑藤虫蚝蜡蝎表袅裥证谥谷豆象赝赞跖辟迹适郁酸采里鉴针钟钥钫钻铲链锄锫镋镎镢镰闲雕面须饥鹇洒虱湿袜";
+        const ONE_TO_MANY_T2S = "么乾仝俱像儘剋劃劄勣叚吒哩喆噁噹坏堃夥崙廬彷徵戰扞擣於昇椀椏氾沈淼澂瀋瀰牴犇甦甯畫瞭礆祇祕筦箚絜綵線耑脩菉蒐薹藉蘋衹袷襬覆託訢諫諮譾讎谿貲買迺逕邨釐鉅鍊鍾鏇鑪钁開閒阪陞靦韝頫願颺餘餬餱餵驄鵰麪麴麵麼麽齧龢";
 
         const isOneToManyArr = new Uint8Array(65536);
         const targetOneToManyList = (CURRENT_MODE === "S2T" || CURRENT_MODE === "S2TE") ? ONE_TO_MANY_S2T : ONE_TO_MANY_T2S;
@@ -2210,55 +2462,97 @@ const doConvert = (srcText) => {
 const checkPhraseLogic = (idx) => {
     if (typeof isSegmentDisplay !== "undefined" && isSegmentDisplay) return false;
     if (!effectiveContextLogic && !effectiveContextLogic_T2S) return false;
+
+    let firstCode = srcText.charCodeAt(idx);
+    let node = rootNodes[firstCode];
+    if (!node || !node.phraseRules) return false;
+
     let maxKeyLen = 0;
-    let foundRule = null;
-    let currentKey = "";
-    for (let pKey in PhraseLogic) {
-        let kLen = pKey.length;
-        if (idx + kLen <= textLen && srcText.substring(idx, idx + kLen) === pKey) {
-            if (kLen > maxKeyLen) { maxKeyLen = kLen; foundRule = PhraseLogic[pKey]; currentKey = pKey; }
+    let matchedRule = null;
+
+    for (let i = 0; i < node.phraseRules.length; i++) {
+        let rule = node.phraseRules[i];
+        if (idx + rule.keyLen <= textLen && srcText.substring(idx, idx + rule.keyLen) === rule.key) {
+            if (rule.keyLen > maxKeyLen) { maxKeyLen = rule.keyLen; matchedRule = rule; }
         }
     }
-    if (foundRule === null) return false;
+    if (matchedRule === null) return false;
 
-    let leftStart = Math.max(0, idx - 6);
+    const barriers = "。。.，,！!？?；;…\n\r";
+
+    // 向左計算視窗
+    let leftStart = idx;
+    let scanLeftCount = 0;
+    while (leftStart > 0 && scanLeftCount < matchedRule.winSize) {
+        let leftChar = srcText.charAt(leftStart - 1);
+        if (matchedRule.barrierActive && barriers.indexOf(leftChar) !== -1) break;
+        leftStart--;
+        scanLeftCount++;
+    }
     let leftWindow = srcText.substring(leftStart, idx);
-    let rightEnd = Math.min(textLen, idx + maxKeyLen + 6);
-    let rightWindow = srcText.substring(idx + maxKeyLen, rightEnd);
-    let partsOpen = foundRule.split("[");
-    let alternatives = partsOpen[0].split(" ");
-    let overTarget = alternatives[1] || alternatives[0];
-    let leftTags = partsOpen[1].split("]")[0].split("|");
-    let rightTags = partsOpen[2].split("]")[0].split("|");
+
+    // 向右計算視窗
+    let rightEndLimit = Math.min(textLen, idx + maxKeyLen + matchedRule.winSize);
+    let rightScanEnd = idx + maxKeyLen;
+    while (rightScanEnd < rightEndLimit) {
+        let rightChar = srcText.charAt(rightScanEnd);
+        if (matchedRule.barrierActive && barriers.indexOf(rightChar) !== -1) break;
+        rightScanEnd++;
+    }
+    let rightWindow = srcText.substring(idx + maxKeyLen, rightScanEnd);
+
     let isTriggered = false;
 
     // 向左比對
-    for (let t = 0; t < leftTags.length; t++) { 
-        let tag = leftTags[t];
-        if (tag !== "") {
-            if (tag.charAt(0) === "!") {
-                if (leftWindow.indexOf(tag.substring(1)) !== -1) { return false; }
+    for (let t = 0; t < matchedRule.leftTags.length; t++) {
+        let tag = matchedRule.leftTags[t];
+        if (!tag.empty) {
+            let isMatch = false;
+            if (tag.hasAt) {
+                let checkStart = idx - tag.len;
+                if (checkStart >= 0) {
+                    isMatch = true;
+                    for (let cIdx = 0; cIdx < tag.len; cIdx++) {
+                        if (srcText.charCodeAt(checkStart + cIdx) !== tag.str.charCodeAt(cIdx)) { isMatch = false; break; }
+                    }
+                }
             } else {
-                if (leftWindow.indexOf(tag) !== -1) { isTriggered = true; }
+                isMatch = leftWindow.indexOf(tag.str) !== -1;
             }
-        } 
+
+            if (tag.isEx) { if (isMatch) return false; }
+            else { if (isMatch) isTriggered = true; }
+        }
     }
 
     // 向右比對
-    for (let t = 0; t < rightTags.length; t++) { 
-        let tag = rightTags[t];
-        if (tag !== "") {
-            if (tag.charAt(0) === "!") {
-                if (rightWindow.indexOf(tag.substring(1)) !== -1) { return false; }
+    for (let t = 0; t < matchedRule.rightTags.length; t++) {
+        let tag = matchedRule.rightTags[t];
+        if (!tag.empty) {
+            let isMatch = false;
+            if (tag.hasAt) {
+                let checkStart = idx + maxKeyLen;
+                if (checkStart + tag.len <= textLen) {
+                    isMatch = true;
+                    for (let cIdx = 0; cIdx < tag.len; cIdx++) {
+                        if (srcText.charCodeAt(checkStart + cIdx) !== tag.str.charCodeAt(cIdx)) { isMatch = false; break; }
+                    }
+                }
             } else {
-                if (rightWindow.indexOf(tag) !== -1) { isTriggered = true; }
+                isMatch = rightWindow.indexOf(tag.str) !== -1;
             }
-        } 
+
+            if (tag.isEx) { if (isMatch) return false; }
+            else { if (isMatch) isTriggered = true; }
+        }
     }
-    
-    if (isTriggered) {
+
+    if ((matchedRule.leftTags.length === 1 && matchedRule.leftTags[0].empty && 
+         matchedRule.rightTags.length === 1 && matchedRule.rightTags[0].empty) || isTriggered) {
         if (idx > lastMatchEnd) { out.push(srcText.substring(lastMatchEnd, idx)); }
-        out.push(overTarget); replaceCount++; lastMatchEnd = idx + maxKeyLen;
+        out.push(matchedRule.target);
+        replaceCount++;
+        lastMatchEnd = idx + maxKeyLen;
         i = idx + maxKeyLen;
         return true;
     }
@@ -2277,7 +2571,7 @@ const checkPhraseLogic = (idx) => {
             for (let v of ContextLogicAnchors) if (v) isAnchorStartArr[v.charCodeAt(0)] = 1;
         }
 
-        // 🌟 HMM Viterbi 演算法實作 (V8 TypedArray 扁平化)
+        // HMM Viterbi 演算法實作 (V8 TypedArray 扁平化)
         const viterbi = (obs) => {
             if (!isHmmLoaded || !obs || obs.length === 0) return [obs.length];
             let obsLen = obs.length;
@@ -2294,7 +2588,7 @@ const checkPhraseLogic = (idx) => {
                     let best_prev_state = 0;
                     let emitP = hmmEmit[y][charCode];
                     for (let y0 = 0; y0 < 4; y0++) {
-                        // 轉移矩陣查表
+
                         let prob = vitVBuf[(t - 1) * 4 + y0] + hmmTrans[y0 * 4 + y] + emitP;
                         if (prob > max_prob) {
                             max_prob = prob;
@@ -2333,7 +2627,7 @@ const checkPhraseLogic = (idx) => {
             // 第 1 階段：Jieba DAG + DP 路由計算
             const routeScore = new Float64Array(textLen + 1);
             const routeNext = new Int32Array(textLen + 1);
-            
+
             routeScore[textLen] = 0;
             routeNext[textLen] = textLen;
 
@@ -2431,11 +2725,13 @@ const checkPhraseLogic = (idx) => {
                         }
                     }
                     j++;
-                    if (j < textLen) {
-                        currNode = currNode.c ? (currNode.c.get ? currNode.c.get(srcText.charCodeAt(j)) : currNode.c[srcText.charCodeAt(j)]) : null;
-                        if (!currNode) break;
+                        if (j < textLen) {
+                            let nextCode = srcText.charCodeAt(j);
+                            if (!qCheckMask(currNode, nextCode)) break; 
+                            currNode = currNode.c.get(nextCode);
+                            if (!currNode) break;
+                        }
                     }
-                }
                 routeScore[idx] = bestScore;
                 routeNext[idx] = bestNext;
             }
@@ -2483,7 +2779,10 @@ const checkPhraseLogic = (idx) => {
                 let nextIdx = routeNext[i];
                 let wordLen = nextIdx - i;
 
-                if (wordLen < 4 && rootNodes[srcText.charCodeAt(i)] && rootNodes[srcText.charCodeAt(i)].hasPhrase) {
+                let firstCharCode = srcText.charCodeAt(i);
+                let currentMaxThres = (rootNodes[firstCharCode] && rootNodes[firstCharCode].maxThres) ? rootNodes[firstCharCode].maxThres : 4;
+
+                if (wordLen < currentMaxThres && rootNodes[firstCharCode] && rootNodes[firstCharCode].hasPhrase) {
                     if (checkPhraseLogic(i)) continue;
                 }
 
@@ -2583,7 +2882,7 @@ if (isSegmentDisplay) {
                             let hook = activeLogicArr[firstCode];
                             if (hook !== undefined) {
                                 let logicResult = hook(i, srcText); 
-                                if (logicResult !== null) openccTarget = logicResult;
+                                if (logicResult !== null) openccTarget = applyTWVariants(logicResult);
                             }
                         }
                         if (openccTarget === null && node.v !== null) {
@@ -2621,7 +2920,8 @@ if (isSegmentDisplay) {
                                 let temp = curr;
                                 while (subK + scan < wordLen) {
                                     let nextCode = srcText.charCodeAt(currentIdx + scan);
-                                    temp = temp.c ? (temp.c.get ? temp.c.get(nextCode) : temp.c[nextCode]) : null;
+                                    if (!qCheckMask(temp, nextCode)) break; 
+                                    temp = temp.c.get(nextCode);
                                     if (!temp) break;
                                     if (temp.v !== null) {
                                         longestMatchLen = scan + 1;
@@ -2636,7 +2936,7 @@ if (isSegmentDisplay) {
                             if (hook !== undefined) {
                                 let lRes = hook(currentIdx, srcText);
                                 if (lRes !== null) {
-                                    longestMatchTarget = lRes;
+                                    longestMatchTarget = applyTWVariants(lRes);
                                     longestMatchLen = 1;
                                 }
                             }
@@ -2709,7 +3009,10 @@ if (isSegmentDisplay) {
                 j++;
                 while (j < textLen) {
                     let code = srcText.charCodeAt(j);
-                    node = node.c.get ? node.c.get(code) : node.c[code];
+
+                    if (!qCheckMask(node, code)) break; 
+
+                    node = node.c.get(code);
                     if (node === undefined) break; 
 
                     if (node.v !== null) {
@@ -2720,7 +3023,8 @@ if (isSegmentDisplay) {
                     j++;
                 }
 
-                if (longestMatchLen < 4 && rootNodes[firstCode] && rootNodes[firstCode].hasPhrase) {
+                let currentMaxThres = (rootNodes[firstCode] && rootNodes[firstCode].maxThres) ? rootNodes[firstCode].maxThres : 4;
+                if (longestMatchLen < currentMaxThres && rootNodes[firstCode] && rootNodes[firstCode].hasPhrase) {
                     if (checkPhraseLogic(i)) continue;
                 }
 
@@ -2748,6 +3052,7 @@ if (isSegmentDisplay) {
 
                         var k = visionIdx + 1;
                         while (k < textLen) {
+                            if (visionNode && !qCheckMask(visionNode, srcText.charCodeAt(k))) { visionNode = null; }
                             visionNode = visionNode ? visionNode.c.get(srcText.charCodeAt(k)) : null;
                             var currentSub = srcText.substring(visionIdx, k + 1);
                             if ((visionNode && visionNode.v !== null) || VisionVocabs.has(currentSub)) {
@@ -2764,6 +3069,7 @@ if (isSegmentDisplay) {
                             var k2 = deepIdx + 1;
 
                             while (k2 < textLen) {
+                                if (deepNode && !qCheckMask(deepNode, srcText.charCodeAt(k2))) { deepNode = null; }
                                 deepNode = deepNode ? deepNode.c.get(srcText.charCodeAt(k2)) : null;
                                 var deepSub = srcText.substring(deepIdx, k2 + 1);
                                 if ((deepNode && deepNode.v !== null) || VisionVocabs.has(deepSub)) {
@@ -2809,7 +3115,10 @@ if (isSegmentDisplay) {
 
                     if (longestMatchLen === 1 && hasLogic) {
                         let hook = activeLogicArr[firstCode];
-                        if (hook !== undefined) finalTarget = hook(i, srcText) || finalTarget;
+                        if (hook !== undefined) {
+                                let hookRes = hook(i, srcText);
+                                finalTarget = hookRes ? applyTWVariants(hookRes) : finalTarget;
+                            }
                     }
 
                     if (longestMatchOriginal !== finalTarget) {
@@ -2946,12 +3255,12 @@ if (isSegmentDisplay) {
             }
 
             // ⚙️ 階段二：混合執行轉換
-            if (irregularCellsCount > 100000) {
+            if (irregularCellsCount > 200000) {
                 status = "";
                 alert(_L(
-                    "⚠️ Irregular CSV parts (>100,000 cells) detected.\nConversion aborted to prevent data shifting. Please select a smaller area.\n\n💡 For full-file conversion, it is recommended to exit 'CSV Mode' and return to 'Normal Mode' to ensure data integrity and conversion efficiency.",
-                    "⚠️ 偵測到不規則的 CSV 區塊超過 100,000 格限制。\n為防止轉換後發生資料推擠錯位，系統已自動攔截轉換。請縮小選取範圍。\n\n💡 若需轉換整個檔案，建議退出「CSV 模式」，回到「標準模式」執行，以確保資料完整正確與轉換效率。",
-                    "⚠️ 侦测到不规则的 CSV 区块超过 100,000 格限制。\n为防止转换后发生数据推挤错位，系统已自动拦截转换。请缩小选取范围。\n\n💡 若需转换整个文件，建议退出「CSV 模式」，回到「标准模式」运行，以确保数据完整正确与转换效率。"
+                    "⚠️ Irregular CSV parts (>200,000 cells) detected.\nConversion aborted to prevent data shifting. Please select a smaller area.\n\n💡 For full-file conversion, it is recommended to exit 'CSV Mode' and return to 'Normal Mode' to ensure data integrity and conversion efficiency.",
+                    "⚠️ 偵測到不規則的 CSV 區塊超過 200,000 格限制。\n為防止轉換後發生資料推擠錯位，系統已自動攔截轉換。請縮小選取範圍。\n\n💡 若需轉換整個檔案，建議退出「CSV 模式」，回到「標準模式」執行，以確保資料完整正確與轉換效率。",
+                    "⚠️ 侦测到不规则的 CSV 区块超过 200,000 格限制。\n为防止转换后发生数据推挤错位，系统已自动拦截转换。请缩小选取范围。\n\n💡 若需转换整个文件，建议退出「CSV 模式」，回到「标准模式」运行，以确保数据完整正确与转换效率。"
                 ));
                 Quit();
             }
@@ -2974,6 +3283,8 @@ if (isSegmentDisplay) {
                     if (!block.isRegular) {
                         // 【不規則區塊】Surgical Mode
                         let pendingCells = [];
+                        // 快取 COM 物件
+                        let doc = document;
                         for (let r = block.topRow; r <= block.bottomRow; r++) {
 
                             if (r % Math.max(1, Math.floor(totalR / 20)) === 0) {
@@ -2983,7 +3294,7 @@ if (isSegmentDisplay) {
 
                             for (let c = cTopCol; c <= cBottomCol; c++) {
                                 let cellText = "";
-                                try { cellText = document.GetCell(r, c, 0); } catch(e) { continue; }
+                                try { cellText = doc.GetCell(r, c, 0); } catch(e) { continue; }
 
                                 if (cellText) {
                                     if (cellText.length > 25000000) {
@@ -3002,7 +3313,7 @@ if (isSegmentDisplay) {
                             let item = pendingCells[i];
                             try {
                                 if (!isSimulate) {
-                                    document.SetCell(item.r, item.c, item.text, 0);
+                                    doc.SetCell(item.r, item.c, item.text, 0);
                                 }
                                 totalReplaced += item.count;
                             } catch(e) {}
@@ -3010,9 +3321,12 @@ if (isSegmentDisplay) {
                     } else {
                         // 【規則區塊】Bulk Mode
                         try {
-                            document.selection.SetAnchorPoint(eePosCell, cTopCol, block.topRow);
-                            document.selection.SetActivePoint(eePosCell, cBottomCol, block.bottomRow, true);
-                            let bText = document.selection.Text;
+                            // 快取 COM 物件
+                            let sel = document.selection;
+
+                            sel.SetAnchorPoint(eePosCell, cTopCol, block.topRow);
+                            sel.SetActivePoint(eePosCell, cBottomCol, block.bottomRow, true);
+                            let bText = sel.Text;
 
                             if (bText && bText.length > 150000000) {
                                 status = "";
@@ -3032,7 +3346,7 @@ if (isSegmentDisplay) {
                                     else if (!hasTrailingNewline && outTrailing) outText = outText.replace(/[\r\n]$/, "");
 
                                     if (!isSimulate) {
-                                        document.selection.Text = outText;
+                                        sel.Text = outText;
                                     }
                                     totalReplaced += res.count;
                                 }
@@ -3049,82 +3363,87 @@ if (isSegmentDisplay) {
                 ShowTip("", eeShowTipHide);
             }
 
-        } else if (isFilterMode) {
-            let blocks = [];
-            if (isVerticalSel && selCount === 1) {
-                let minX = Math.min(topX, bottomX);
-                let maxX = Math.max(topX, bottomX);
-                for (let y = topY; y <= bottomY; y++) {
+} else if (isFilterMode) {
+        let blocks = [];
+        if (isVerticalSel && selCount === 1) {
+            let minX = Math.min(topX, bottomX);
+            let maxX = Math.max(topX, bottomX);
+            for (let y = topY; y <= bottomY; y++) {
+                blocks.push({
+                    ty: y, tx: minX, by: y, bx: maxX
+                });
+            }
+        } else if (isMultiSel) {
+            for (let i = 1; i <= selCount; i++) {
+                try {
                     blocks.push({
-                        ty: y, tx: minX, by: y, bx: maxX
+                        ty: document.selection.GetTopPointY(eePosLogical, i),
+                        tx: document.selection.GetTopPointX(eePosLogical, i),
+                        by: document.selection.GetBottomPointY(eePosLogical, i),
+                        bx: document.selection.GetBottomPointX(eePosLogical, i)
                     });
-                }
-            } else if (isMultiSel) {
-                for (let i = 1; i <= selCount; i++) {
-                    try {
-                        blocks.push({
-                            ty: document.selection.GetTopPointY(eePosLogical, i),
-                            tx: document.selection.GetTopPointX(eePosLogical, i),
-                            by: document.selection.GetBottomPointY(eePosLogical, i),
-                            bx: document.selection.GetBottomPointX(eePosLogical, i)
-                        });
-                    } catch(e) {}
-                }
-            } else {
-                blocks.push({ ty: topY, tx: topX, by: bottomY, bx: bottomX });
+                } catch(e) {}
             }
+        } else {
+            blocks.push({ ty: topY, tx: topX, by: bottomY, bx: bottomX });
+        }
 
-            let pendingWrites = [];
-            for (let c = 0; c < blocks.length; c++) {
-                let b = blocks[c];
-                for (let y = b.ty; y <= b.by; y++) {
-                    let lineStr = document.GetLine(y); 
-                    let lineLen = lineStr.length; 
-                    let startX = (y === b.ty) ? b.tx : 1;
-                    let endX = (y === b.by) ? b.bx : (lineLen + 1);
+        let pendingWrites = [];
+        for (let c = 0; c < blocks.length; c++) {
+            let b = blocks[c];
+            for (let y = b.ty; y <= b.by; y++) {
+                let lineStr = document.GetLine(y); 
+                let lineLen = lineStr.length; 
+                let startX = (y === b.ty) ? b.tx : 1;
+                let endX = (y === b.by) ? b.bx : (lineLen + 1);
 
-                    if (startX > lineLen + 1) startX = lineLen + 1;
-                    if (endX > lineLen + 1) endX = lineLen + 1;
-                    if (startX >= endX) continue;
+                if (startX > lineLen + 1) startX = lineLen + 1;
+                if (endX > lineLen + 1) endX = lineLen + 1;
+                if (startX >= endX) continue;
 
-                    let textToProcess = lineStr.substring(startX - 1, endX - 1);
-                    if (!textToProcess) continue;
+                let textToProcess = lineStr.substring(startX - 1, endX - 1);
+                if (!textToProcess) continue;
 
-                    if (textToProcess.length > 25000000) {
-                        status = "";
-                        alert(_L("⚠️ Selection contains a giant single line (> 50MB). Conversion aborted.", "⚠️ 選取範圍包含超過 50MB 的單一巨型資料行，為防止記憶體溢位，已中止轉換作業。", "⚠️ 选取范围包含超过 50MB 的单一巨型数据行，为防止内存溢出，已中止转换程序。"));
-                        Quit();
-                    }
-
-                    let res = doConvert(textToProcess);
-                    if (res.count > 0) pendingWrites.push({ y: y, startX: startX, endX: endX, text: res.text, count: res.count });
+                if (textToProcess.length > 25000000) {
+                    status = "";
+                    alert(_L("⚠️ Selection contains a giant single line (> 50MB). Conversion aborted.", "⚠️ 選取範圍包含超過 50MB 的單一巨型資料行，為防止記憶體溢位，已中止轉換作業。", "⚠️ 选取范围包含超过 50MB 的单一巨型数据行，为防止内存溢出，已中止转换程序。"));
+                    Quit();
                 }
-            }
 
+                let res = doConvert(textToProcess);
+                if (res.count > 0) pendingWrites.push({ y: y, startX: startX, endX: endX, text: res.text, count: res.count });
+            }
+        }
+
+        if (pendingWrites.length > 0) {
             pendingWrites.sort(function(a, b) {
                 if (b.y !== a.y) return b.y - a.y;
                 return b.startX - a.startX;
             });
 
             let totalW = pendingWrites.length;
+            // 快取 COM 物件
+            let sel = document.selection;
+
             for (let w = 0; w < totalW; w++) {
                 if (w % Math.max(1, Math.floor(totalW / 9)) === 0) {
                     ShowTip(getMsgProcessing(Math.round(((w + 1) / totalW) * 99)), 1);
                 }
                 let item = pendingWrites[w];
                 try {
-                    document.selection.SetActivePoint(eePosLogical, item.startX, item.y);
-                    if (document.selection.GetActivePointY(eePosLogical) === item.y) {
-                        document.selection.SetActivePoint(eePosLogical, item.endX, item.y, true);
+                    sel.SetActivePoint(eePosLogical, item.startX, item.y);
+                    if (sel.GetActivePointY(eePosLogical) === item.y) {
+                        sel.SetActivePoint(eePosLogical, item.endX, item.y, true);
                         // 判斷是否寫入
                         if (!isSimulate) {
-                            document.selection.Text = item.text;
+                            sel.Text = item.text;
                         }
                         totalReplaced += item.count;
                     }
                 } catch(e) {}
             }
-            ShowTip("", eeShowTipHide);
+        }
+        ShowTip("", eeShowTipHide);
 
         } else if (isMultiSel) {
             let multiBlocks = [];
@@ -3150,15 +3469,17 @@ if (isSegmentDisplay) {
             multiBlocks.reverse();
 
             let totalM = multiBlocks.length;
+            // 快取 COM 物件
+            let sel = document.selection;
             for (let i = 0; i < totalM; i++) {
                 if (i % Math.max(1, Math.floor(totalM / 9)) === 0) {
                     ShowTip(getMsgProcessing(Math.round(((i + 1) / totalM) * 99)), 1);
                 }
                 let b = multiBlocks[i];
                 try {
-                    document.selection.SetActivePoint(eePosLogical, b.tx, b.ty);
-                    document.selection.SetActivePoint(eePosLogical, b.bx, b.by, true);
-                    let srcText = document.selection.Text;
+                    sel.SetActivePoint(eePosLogical, b.tx, b.ty);
+                    sel.SetActivePoint(eePosLogical, b.bx, b.by, true);
+                    let srcText = sel.Text;
                     if (!srcText) continue;
 
                     if (srcText.length > 25000000) {
@@ -3171,7 +3492,7 @@ if (isSegmentDisplay) {
                     if (res.count > 0) {
                         // 判斷是否寫入
                         if (!isSimulate) {
-                            document.selection.Text = res.text;
+                            sel.Text = res.text;
                         }
                         totalReplaced += res.count;
                     }
@@ -3179,10 +3500,13 @@ if (isSegmentDisplay) {
             }
             ShowTip("", eeShowTipHide);
 
-        } else {
+} else {
             const totalChunks = chunks.length;
             // 從第一個 chunk 算出初始步長
             let v8Step = (totalChunks > 0) ? (chunks[0].bottomY - chunks[0].topY + 1) : 1;
+
+            // 快取 COM 物件
+            let sel = document.selection;
 
             for (let c = 0; c < totalChunks; c++) {
                 let chunk = chunks[c];
@@ -3192,38 +3516,34 @@ if (isSegmentDisplay) {
                     let progress = Math.round(((c + 1) / totalChunks) * 99);
                     ShowTip(getMsgProcessing(progress), 1);
 
-                    // 決定本次處理的終點
                     let subBottomY = (txtlen > 0) ? Math.min(subTopY + v8Step - 1, chunk.bottomY) : chunk.bottomY;
 
-                    // 定位選取區
                     if (chunk.isFirst && subTopY === chunk.topY) {
-                        document.selection.SetActivePoint(eePosLogical, topX, subTopY);
+                        sel.SetActivePoint(eePosLogical, topX, subTopY);
                     } else {
-                        document.selection.SetActivePoint(eePosLogical, 1, subTopY);
+                        sel.SetActivePoint(eePosLogical, 1, subTopY);
                     }
 
                     if (chunk.isLast && subBottomY === chunk.bottomY) {
-                        document.selection.SetActivePoint(eePosLogical, bottomX, subBottomY, true);
+                        sel.SetActivePoint(eePosLogical, bottomX, subBottomY, true);
                     } else {
-                        document.selection.SetActivePoint(eePosLogical, 1, subBottomY + 1, true);
+                        sel.SetActivePoint(eePosLogical, 1, subBottomY + 1, true);
                     }
 
                     // V8 變速降檔邏輯 (僅針對有 TextLength 版本)
                     if (txtlen > 0) {
-                        let currentLen = document.selection.TextLength;
-                        // 🛑 降檔：若遇到大爬坡，將 v8Step 減半並重新選取
+                        let currentLen = sel.TextLength;
                         while (currentLen > 80000000 && subBottomY > subTopY) {
                             v8Step = Math.floor(v8Step / 2) || 1;
                             subBottomY = subTopY + v8Step - 1;
 
                             if (chunk.isLast && subBottomY === chunk.bottomY) {
-                                document.selection.SetActivePoint(eePosLogical, bottomX, subBottomY, true);
+                                sel.SetActivePoint(eePosLogical, bottomX, subBottomY, true);
                             } else {
-                                document.selection.SetActivePoint(eePosLogical, 1, subBottomY + 1, true);
+                                sel.SetActivePoint(eePosLogical, 1, subBottomY + 1, true);
                             }
-                            currentLen = document.selection.TextLength;
+                            currentLen = sel.TextLength;
                         }
-                        // 🟢 升檔：路況好就嘗試翻倍，但不超過初始塊的大小 (baseStep)
                         let baseStep = chunks[0].bottomY - chunks[0].topY + 1;
                         if (currentLen < 40000000 && v8Step < baseStep) {
                             v8Step = Math.min(baseStep, v8Step * 2);
@@ -3232,7 +3552,7 @@ if (isSegmentDisplay) {
 
                     let srcText = "";
                     try {
-                        srcText = document.selection.Text;
+                        srcText = sel.Text;
                     } catch (e) {
                         status = "";
                         alert(_L(`❌ Crash at chunk ${c + 1}.`, `❌ 第 ${c + 1} 區塊失敗。`, `❌ 第 ${c + 1} 区块失败。`));
@@ -3243,7 +3563,6 @@ if (isSegmentDisplay) {
                         else break;
                     }
 
-                    // 50MB 單行限制
                     if (srcText.length > 25000000 && subTopY === subBottomY) {
                         status = "";
                         alert(_L("⚠️ Selection contains a giant single line (> 50MB). Conversion aborted.", "⚠️ 選取範圍包含超過 50MB 的單一巨型資料行，為防止記憶體溢位，已中止轉換作業。", "⚠️ 选取范围包含超过 50MB 的单一巨型数据行，为防止内存溢出，已中止转换程序。"));
@@ -3254,10 +3573,10 @@ if (isSegmentDisplay) {
                     if (res.count > 0) {
                         try {
                             if (!isSimulate) {
-                                document.selection.Text = res.text;
+                                sel.Text = res.text;
                                 if (chunk.isLast && subBottomY === chunk.bottomY) {
-                                    realBottomX = document.selection.GetActivePointX(eePosLogical);
-                                    realBottomY = document.selection.GetActivePointY(eePosLogical);
+                                    realBottomX = sel.GetActivePointX(eePosLogical);
+                                    realBottomY = sel.GetActivePointY(eePosLogical);
                                 }
                             }
                             totalReplaced += res.count;
@@ -3270,7 +3589,6 @@ if (isSegmentDisplay) {
 
                     srcText = null; res = null;
 
-                    // 推進座標
                     if (txtlen > 0) {
                         subTopY = subBottomY + 1;
                     } else {
