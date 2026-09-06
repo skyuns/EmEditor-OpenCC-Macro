@@ -2,6 +2,20 @@
 
 所有關於 OpenCC for EmEditor 巨集的重大變更與更新都會記錄於此文件中。
 
+## [v0.44] - Trie 引擎強化、規則解析精簡與整體效能提升 2026-09-06
+
+* **優化：全 Trie 雙層 FastMask 加速架構 (Dual-Layer Trie FastMask Architecture)**
+重構 Trie 詞典匹配流程，導入雙層 FastMask 預篩機制，減少無效節點搜尋與字串比對次數，提升大型詞庫與大檔案轉換效率。
+
+* **優化：JSEE 結構化規則載入與 ContextLogic 範圍解析 (Structured Rule Loading & Scoped ContextLogic)**
+重新整理規則載入流程，簡化資料擷取與預處理架構，同時導入限定範圍的 ContextLogic 分析機制，降低不必要的前後文掃描與運算負擔。
+
+* **優化：雙端架構一致性與執行效能改善 (Cross-Platform Consistency & Performance Optimization)**
+C# 與 v8 核心邏輯及規則解析流程改善，確保各運作模式輸出結果一致，並持續降低記憶體配置與提升整體轉換速度。
+
+* **開發說明**
+本版部分架構重構、效能分析與最佳化方案，由 Microsoft Copilot GPT-5.6 深度思考模式協助完成。
+
 ## [v0.43] - 雙端架構同步：CJK 相容字處理、微型規則解譯與原生交握優化 2026-07-01
 * **新增：跨端 CJK 相容字安全閘道(Compatibility Ideographs Normalization)**
 因 OpenCC 轉換行為調整，新版在轉換前，C# 與 v8 前端也同時切入安全預處理閘道。利用自製扁平化陣列與高效率的 Map 結構，在不破壞原文字串內碼索引的前提下，直接掃描 U+F900 ~ U+FAFF 區間與平面 2 的高位代理字。一旦命中，原地執行字元重組（利用極速陣列拼接），在文字送入 Trie 樹匹配前完成正規化，解決因相容字與標準字內碼不同，造成精確詞條無法命中或轉換後遺失字形。
