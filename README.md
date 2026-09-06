@@ -103,25 +103,22 @@ My Macros/ (巨集存放目錄)
 | 轉換工具 / 转换工具 | 執行方式 / 执行方式 | 耗時 / 耗时 | 備註 / 备注 |
 | :--- | :--- | :--- | :--- |
 | **EmEditor 官方外掛** | 點選 **簡** 外掛 | **約 1 秒** | 速度最快，但僅限單字轉換，且篩選模式下行序易亂。 
-| **T2S.jsee + BoostCVT** | 點選 **簡** 巨集 | **約 6 秒** | 搭配新開發的 BoostCVT.exe，需 EmEditor v26.1+。 ||
+| **T2S.jsee + BoostCVT** | 點選 **簡** 巨集 | **約 5 秒** | 搭配新開發的 BoostCVT.exe，需 EmEditor v26.1+。 ||
 | **本專案巨集 (T2S.jsee)** | 點選 **簡** 巨集 | **約 30 秒** | 含詞組轉換且不亂序，適合編輯環境直接使用。 |
 | **opencc-1.0.5** | 命令行 (CLI) | 約 55 秒 | 須離開編輯環境操作，輸入命令行指令，不方便。 |
 | **opencc-1.3.1** | 命令行 (CLI) | 約 23 秒 | 相比之前幾個版本，1.3.1版已大幅提升轉換速度。 |
 | **opencc-1.4.0** | 命令行 (CLI) | 約 42 秒 | AI 推測 CJK 正規化與 RegionalPhrases 反向投影增加了處理時間。 |
+| **opencc-1.4.2** | 命令行 (CLI) | 約 9 秒 | PR#1464，十幾年來最大的速度提升。 |
 | **OpenCC.NET.GUI** | 圖形介面批量轉換 | 3 分 50 秒 | 適合多檔案處理，單一檔案操作較繁瑣。 |
 
-註: 0.43 版，T2S/S2T.jsee + BoostCVT 使用 Turbo 模式，轉換 1GB 不到 6 秒。
-<img width="1304" height="56" alt="image" src="https://github.com/user-attachments/assets/d936fa61-6d1d-4f3d-838a-a886fa81e37e" />
-
-<img width="1302" height="54" alt="image" src="https://github.com/user-attachments/assets/393678ea-b24c-4580-b0bb-351309ccfe1f" />
-
-0.43 版，開啟結巴分詞進行繁簡轉換 1GB 的文字檔，也只需 8 秒左右。
-<img width="1299" height="56" alt="image" src="https://github.com/user-attachments/assets/216c8636-3fad-41cc-96e4-718cf920e0ce" />
-
-<img width="1287" height="52" alt="image" src="https://github.com/user-attachments/assets/e2e9d7ac-ddb2-4571-8026-af24aa62adcf" />
+註: 0.44 版，T2S/S2T.jsee + BoostCVT 使用 Turbo 模式，轉換 1GB 不到 5 秒。
+<img width="1300" height="52" alt="image" src="https://github.com/user-attachments/assets/152cfdaa-540a-4ae8-825a-29472dacf473" />
+<img width="1307" height="52" alt="image" src="https://github.com/user-attachments/assets/7edcffc0-d4a2-4e04-aae0-2eaad7c3af4f" />
 
 
-
+0.44 版，開啟結巴分詞進行繁簡轉換 1GB 的文字檔，也不到 7 秒。
+<img width="1303" height="55" alt="image" src="https://github.com/user-attachments/assets/7c9a3438-8b0a-4a73-806c-51e7669040b5" />
+<img width="1306" height="53" alt="image" src="https://github.com/user-attachments/assets/b9fe8a45-488b-4ca0-b097-5b361794cdf7" />
 
 ---
 
@@ -235,5 +232,5 @@ My Macros/ (巨集存放目錄)
 * 7/3 備註：一直忘了介紹，AI 寫的 [OpenCC 檔案轉換工具](./tool)。上面一段有提到，因為 OpenCC 很少有 GUI 板，以前大都是用指令操作，現在不得不讚嘆 AI 的發明，簡單的東西都可以自己捏出來，就讓 AI 寫了一個批次檔小工具，方便多了。
   使用方式是將 cc.bat 批次檔，放在 bin 目錄底下，也就是跟 opencc.exe 放在一起，執行 cc，或是檔案總管點兩下就可以用了，會自動尋找並列出同目錄底下的 txt  檔案，以便轉換。理論上會自動偵測中英文來顯示操作介面。
   
-
+* 9/6 備註：0.44 用了 Gemini Pro 與 GPT-5.6 深度思考模式反覆折騰下來，該上的底層優化幾乎全上了，效能已經碰到了某個瓶頸。之後大概很少會更新了。
 
