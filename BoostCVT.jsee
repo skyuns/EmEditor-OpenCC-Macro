@@ -1,6 +1,6 @@
 ﻿#language="JScript"
 
-// Project: OpenCC for EmEditor Macro v0.43 BoostCVT
+// Project: OpenCC for EmEditor Macro v0.44 BoostCVT
 // Author: skyuns (https://github.com/skyuns/EmEditor-OpenCC-Macro 備援: https://gitcode.com/skyuns/EmEditor-OpenCC-Macro)
 // Purpose: 中介加速腳本，負責執行智慧切塊並呼叫 BoostCVT 增壓引擎，全程透過剪貼簿進行資料交換，以自動變速方式進行大規模文字的多執行緒高速繁簡轉換。
 // Note: 加速組件為選配項目，僅在大規模文字且組件存在時啟動。使用者可視需求自由部署，只需 EXE 或 DLL 其中一種即可；使用時須經由 .jsee 腳本驅動，不支援獨立運作。
@@ -374,9 +374,8 @@ function main() {
     var realBottomY = bottomY;
 
     try {
-        var currentOrigTopY = topY;
-        var lineOffset = 0;
         // 根據模式設定安全線
+        var SINGLE_LINE_LIMIT = Turbo_MODE ? 422000000 : 338000000;
         var SAFE_CHAR_LIMIT = Turbo_MODE ? 422000000 : 338000000;
 
         // 如果字元數小於安全極限，不做動態收縮檢查
@@ -384,16 +383,79 @@ function main() {
 
         // 3. 逐塊動態收縮與轉換 (Adaptive Line Chunking)
         var step = linesPerChunk; // 變速箱步進變數 (具備記憶功能)
+        var chunkList = [];
+        var buildOrigTopY = topY;
 
-        while (currentOrigTopY <= bottomY) {
-            var currentTopY = currentOrigTopY + lineOffset;
+        while (buildOrigTopY <= bottomY) {
+            var buildOrigBottomY = Math.min(buildOrigTopY + step - 1, bottomY);
+            var buildIsFirst = (buildOrigTopY === topY);
+            var buildIsLast = (buildOrigBottomY === bottomY);
 
-            // 嘗試以最大步伐 (或上一圈的記憶步伐) 往前邁進
-            var currentOrigBottomY = Math.min(currentOrigTopY + step - 1, bottomY);
-            var currentBottomY = currentOrigBottomY + lineOffset;
+            sel.Collapse();
+            if (buildIsFirst) sel.SetAnchorPoint(eePosLogical, topX, buildOrigTopY);
+            else sel.SetAnchorPoint(eePosLogical, 1, buildOrigTopY);
 
-            var isFirst = (currentOrigTopY === topY);
-            var isLast = (currentOrigBottomY === bottomY);
+            if (buildIsLast) sel.SetActivePoint(eePosLogical, bottomX, buildOrigBottomY, true);
+            else sel.SetActivePoint(eePosLogical, 1, buildOrigBottomY + 1, true);
+
+            var buildLen = 0;
+
+            // 總字元數大於安全線時，執行長度檢測與動態降檔
+            if (!skipLengthCheck) {
+                buildLen = sel.TextLength;
+
+                // 動態收縮核心 (Adaptive Shrinking)
+                // 🛑 降檔 (Downshift) 邏輯：如果選取範圍超過安全線，將行數砍半，直到降至安全區間內
+                while (buildLen > SAFE_CHAR_LIMIT && buildOrigBottomY > buildOrigTopY) {
+                    step = Math.floor(step / 2);
+                    if (step < 1) step = 1;
+
+                    buildOrigBottomY = buildOrigTopY + step - 1;
+                    if (buildOrigBottomY > bottomY) buildOrigBottomY = bottomY;
+                    buildIsLast = (buildOrigBottomY === bottomY);
+
+                    if (buildIsLast) sel.SetActivePoint(eePosLogical, bottomX, buildOrigBottomY, true);
+                    else sel.SetActivePoint(eePosLogical, 1, buildOrigBottomY + 1, true);
+
+                    buildLen = sel.TextLength;
+                }
+            }
+
+            // 單行字元數攔截
+            if (buildOrigBottomY === buildOrigTopY) {
+                if (buildLen === 0) buildLen = sel.TextLength;
+                if (buildLen > SINGLE_LINE_LIMIT) {
+                    status = "";
+                    alert(_L("⚠️ Single line exceeds 338M character limit. Conversion aborted.", "⚠️ 單行字元數超過 338M 字元極限，為避免記憶體溢位，已中止轉換作業。", "⚠️ 单行字符数超过 338M 字符极限，为避免内存溢出，已中止转换程序。"));
+                    Quit();
+                }
+            }
+
+            chunkList.push({
+                topY: buildOrigTopY,
+                bottomY: buildOrigBottomY,
+                isFirst: buildIsFirst,
+                isLast: buildIsLast
+            });
+
+            // 🟢 升檔 (Upshift)：如果路況良好（資料稀疏），嘗試將步伐翻倍恢復速度
+            if (!skipLengthCheck && buildLen > 0 && buildLen < SAFE_CHAR_LIMIT / 2) {
+                step = Math.min(linesPerChunk, step * 2);
+            }
+
+            buildOrigTopY = buildOrigBottomY + 1;
+        }
+
+        chunkList.reverse();
+
+        for (var chunkIndex = 0; chunkIndex < chunkList.length; chunkIndex++) {
+            var chunk = chunkList[chunkIndex];
+            var currentOrigTopY = chunk.topY;
+            var currentOrigBottomY = chunk.bottomY;
+            var currentTopY = currentOrigTopY;
+            var currentBottomY = currentOrigBottomY;
+            var isFirst = chunk.isFirst;
+            var isLast = chunk.isLast;
 
             sel.Collapse();
             // 設定起點
@@ -404,40 +466,8 @@ function main() {
             if (isLast) sel.SetActivePoint(eePosLogical, bottomX, currentBottomY, true);
             else sel.SetActivePoint(eePosLogical, 1, currentBottomY + 1, true);
 
-            var len = 0;
-
-            // 總字元數大於安全線時，執行長度檢測與動態降檔
-            if (!skipLengthCheck) {
-                len = sel.TextLength;
-
-                // 動態收縮核心 (Adaptive Shrinking)
-                // 🛑 降檔 (Downshift) 邏輯：如果選取範圍超過安全線，將行數砍半，直到降至安全區間內
-                while (len > SAFE_CHAR_LIMIT && currentOrigBottomY > currentOrigTopY) {
-                    step = Math.floor(step / 2);
-                    if (step < 1) step = 1;
-
-                    currentOrigBottomY = currentOrigTopY + step - 1;
-                    currentBottomY = currentOrigBottomY + lineOffset;
-                    isLast = (currentOrigBottomY === bottomY);
-
-                    // 重新定位終點
-                    if (isLast) sel.SetActivePoint(eePosLogical, bottomX, currentBottomY, true);
-                    else sel.SetActivePoint(eePosLogical, 1, currentBottomY + 1, true);
-
-                    len = sel.TextLength;
-                }
-
-                // 單行字元數攔截
-                if (len > 100000000 && currentOrigBottomY === currentOrigTopY) {
-                    status = "";
-                    alert(_L("⚠️ Single line exceeds 200MB limit. Conversion aborted.", "⚠️ 單行字元數超過 200MB 極限，為避免記憶體溢位，已中止轉換作業。", "⚠️ 单行字符数超过 200MB 极限，为避免内存溢出，已中止转换程序。"));
-                    Quit();
-                }
-            }
-
             if (sel.TextLength === 0) {
                 // 萬一抓空，推進行數
-                currentOrigTopY = currentOrigBottomY + 1;
                 continue;
             }
 
@@ -455,7 +485,7 @@ function main() {
                 }
 
             // 進度計算
-            var progress = Math.min(99, Math.round(((currentOrigBottomY - topY + 1) / selectedLines) * 99));
+            var progress = Math.min(99, Math.round(((bottomY - currentOrigTopY + 1) / selectedLines) * 99));
             // 顯示進度
             if (useOutputBar) {
                 // 輸出列方式
@@ -504,7 +534,7 @@ function main() {
 
             if (Turbo_MODE) {
                 if (runCount > 0) {
-                    Sleep(20);
+                    Sleep(1);
                     try {
                         document.selection.Paste();
                     } catch (e) {
@@ -531,12 +561,14 @@ function main() {
 
                 // 計算貼上後的行數差值
                 var yAfterPaste = sel.GetActivePointY(eePosLogical);
-                lineOffset += (yAfterPaste - yBeforePaste);
+                var lineDelta = yAfterPaste - yBeforePaste;
 
                 // 檔案最後一段：紀錄結束座標
                 if (isLast) {
                     realBottomX = sel.GetActivePointX(eePosLogical);
-                    realBottomY = sel.GetActivePointY(eePosLogical);
+                    realBottomY = yAfterPaste;
+                } else {
+                    realBottomY += lineDelta;
                 }
 
                 if (!isNaN(runCount)) totalReplaced += runCount;
@@ -547,15 +579,7 @@ function main() {
                 }
             }
 
-            // 🟢 升檔 (Upshift)：如果路況良好（資料稀疏），嘗試將步伐翻倍恢復速度
-            if (!skipLengthCheck && len > 0 && len < SAFE_CHAR_LIMIT / 2) {
-                step = Math.min(linesPerChunk, step * 2);
-            }
-
             if (typeof CollectGarbage === "function") CollectGarbage();
-
-            // 推進到下一個動態區塊起點
-            currentOrigTopY = currentOrigBottomY + 1;
         }
 
 // 4. 顯示完成訊息與計數

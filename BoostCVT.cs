@@ -1,4 +1,4 @@
-﻿// Project: OpenCC for EmEditor Macro v0.43 BoostCVT
+// Project: OpenCC for EmEditor Macro v0.44 BoostCVT
 // Author: skyuns (https://github.com/skyuns/EmEditor-OpenCC-Macro 備援: https://gitcode.com/skyuns/EmEditor-OpenCC-Macro)
 // Purpose: 多執行緒高速繁簡轉換 BoostCVT 增壓引擎，專為處理 EmEditor 大規模文字設計，支援結巴分詞、語法邏輯與動態詞典載入。
 // Note: BoostCVT 加速組件為選配項目，僅在大規模文字且組件存在時啟動。使用者可視需求自由部署，只需 EXE 或 DLL 其中一種即可；使用時須經由 .jsee 腳本驅動，不支援獨立運作。
@@ -23,13 +23,14 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyCompany("skyuns")]
 [assembly: AssemblyProduct("BoostCVT")]
 [assembly: AssemblyCopyright("Copyright © 2026 skyuns (天匀). All rights reserved.")]
-[assembly: AssemblyVersion("0.43.0.0")]
-[assembly: AssemblyFileVersion("0.43.0.0")]
+[assembly: AssemblyVersion("0.44.0.0")]
+[assembly: AssemblyFileVersion("0.44.0.0")]
 
 namespace MyTools {
     public class TextProcessor {
 
-    static System.Collections.Generic.Dictionary<int, int> FastReplaceMap = new System.Collections.Generic.Dictionary<int, int>();
+    static int[] FastReplaceBmpMap;
+    static int[] FastReplaceP2Map;
     static bool FastReplaceMapReady = false;
 
     // NFC 正規化生成的對齊字串
@@ -41,29 +42,41 @@ namespace MyTools {
 
         // 解析 BMP 平面資料 (從 0xF900 開始)
         string[] bmpItems = RawBmpHex.Split(',');
+        FastReplaceBmpMap = new int[bmpItems.Length];
         for (int i = 0; i < bmpItems.Length; i++) {
             string item = bmpItems[i];
             if (item == "0000" || string.IsNullOrEmpty(item)) continue;
-            int originalCodePoint = 0xF900 + i;
             int targetCodePoint = System.Convert.ToInt32(item, 16);
 
-            FastReplaceMap[originalCodePoint] = targetCodePoint;
+            FastReplaceBmpMap[i] = targetCodePoint;
         }
 
         // 解析 Plane 2 平面資料 (從 0x2F800 開始)
         string[] p2Items = RawP2Hex.Split(',');
+        FastReplaceP2Map = new int[p2Items.Length];
         for (int i = 0; i < p2Items.Length; i++) {
             string item = p2Items[i];
             if (item == "0000" || string.IsNullOrEmpty(item)) continue;
-            int originalCodePoint = 0x2F800 + i;
             int targetCodePoint = System.Convert.ToInt32(item, 16);
 
-            FastReplaceMap[originalCodePoint] = targetCodePoint;
+            FastReplaceP2Map[i] = targetCodePoint;
         }
 
         FastReplaceMapReady = true;
     }
 
+    static int GetFastReplacement(int codePoint) {
+        int index;
+        if (codePoint >= 0xF900 && codePoint < 0xF900 + FastReplaceBmpMap.Length) {
+            index = codePoint - 0xF900;
+            return FastReplaceBmpMap[index];
+        }
+        if (codePoint >= 0x2F800 && codePoint < 0x2F800 + FastReplaceP2Map.Length) {
+            index = codePoint - 0x2F800;
+            return FastReplaceP2Map[index];
+        }
+        return 0;
+    }
 
         [DllImport("user32.dll", SetLastError = true)]
         static extern bool OpenClipboard(IntPtr hWndNewOwner);
@@ -81,6 +94,9 @@ namespace MyTools {
         static extern bool GlobalUnlock(IntPtr hMem);
         [DllImport("kernel32.dll")]
         static extern IntPtr GlobalAlloc(uint uFlags, UIntPtr dwBytes);
+
+        [DllImport("kernel32.dll", EntryPoint = "RtlMoveMemory")]
+        static extern void CopyMemory(IntPtr destination, IntPtr source, UIntPtr length);
 
         const uint CF_UNICODETEXT = 13;
         const uint GMEM_MOVEABLE = 0x0002;
@@ -115,16 +131,226 @@ namespace MyTools {
             CloseClipboard();
         }
 
+        static void NativeSetClipboardChunks(string[] chunks) {
+            if (chunks == null) return;
+
+            long totalLength = 0;
+            for (int i = 0; i < chunks.Length; i++) {
+                if (chunks[i] != null) totalLength += chunks[i].Length;
+            }
+            if (totalLength > 2147483646L) return;
+
+            if (!OpenClipboard(IntPtr.Zero)) return;
+            EmptyClipboard();
+
+            UIntPtr bytes = new UIntPtr((ulong)(totalLength + 1) * 2UL);
+            IntPtr hMem = GlobalAlloc(GMEM_MOVEABLE, bytes);
+            if (hMem != IntPtr.Zero) {
+                IntPtr destinationBase = GlobalLock(hMem);
+                if (destinationBase != IntPtr.Zero) {
+                    long targetCharOffset = 0;
+
+                    for (int i = 0; i < chunks.Length; i++) {
+                        string chunk = chunks[i];
+                        if (string.IsNullOrEmpty(chunk)) continue;
+
+                        GCHandle pinnedChunk = default(GCHandle);
+                        try {
+                            // 固定字串後直接複製 UTF-16 記憶體，避免經過 8 KB char[] 中繼緩衝區。
+                            pinnedChunk = GCHandle.Alloc(chunk, GCHandleType.Pinned);
+                            IntPtr sourcePointer = pinnedChunk.AddrOfPinnedObject();
+                            IntPtr destinationPointer = new IntPtr(
+                                destinationBase.ToInt64() + targetCharOffset * 2L);
+
+                            CopyMemory(
+                                destinationPointer,
+                                sourcePointer,
+                                new UIntPtr((ulong)chunk.Length * 2UL));
+
+                            targetCharOffset += chunk.Length;
+                        } finally {
+                            if (pinnedChunk.IsAllocated) pinnedChunk.Free();
+                        }
+                    }
+
+                    Marshal.WriteInt16(
+                        new IntPtr(destinationBase.ToInt64() + targetCharOffset * 2L),
+                        0);
+
+                    GlobalUnlock(hMem);
+                    SetClipboardData(CF_UNICODETEXT, hMem);
+                }
+            }
+
+            CloseClipboard();
+        }
+
         class TrieNode { 
-            public Dictionary<char, TrieNode> Children; 
+            struct ChildEntry {
+                public char Key;
+                public TrieNode Node;
+            }
+
+            ChildEntry[] SmallChildren;
+            int SmallChildCount;
+            Dictionary<char, TrieNode> LargeChildren;
+
             public string Value;
             public ulong FastMask;
+            public ulong FastMask2; // 第二指紋：字元第 6~11 位，降低第一層低 6 位碰撞
             public string OriginalKey;
             public double LogFreq = -18.0; // Jieba 分詞對數頻率
+            public double JiebaBaseScore; // DAG 候選詞固定加扣分預先計算結果
 
             public bool IsVisionAnchor; 
             public bool IsVisionVocab; 
             public bool IsContextAnchor;
+
+            public bool HasChildren {
+                get { return LargeChildren != null || SmallChildCount != 0; }
+            }
+
+            public bool TryGetChild(char key, out TrieNode node) {
+                if (LargeChildren != null) {
+                    return LargeChildren.TryGetValue(key, out node);
+                }
+
+                if (SmallChildCount > 0 && SmallChildren[0].Key == key) {
+                    node = SmallChildren[0].Node;
+                    return true;
+                }
+                if (SmallChildCount > 1 && SmallChildren[1].Key == key) {
+                    node = SmallChildren[1].Node;
+                    return true;
+                }
+                if (SmallChildCount > 2 && SmallChildren[2].Key == key) {
+                    node = SmallChildren[2].Node;
+                    return true;
+                }
+                if (SmallChildCount > 3 && SmallChildren[3].Key == key) {
+                    node = SmallChildren[3].Node;
+                    return true;
+                }
+
+                node = null;
+                return false;
+            }
+
+            public void PrepareJiebaBaseScore(
+                int wordLen,
+                double dictBonus2,
+                double dictBonus3,
+                double dictBonus4,
+                double freqBonusGodly,
+                double freqBonusLegendary,
+                double freqBonusEpic,
+                double freqBonusElite,
+                double freqBonusHigh,
+                double freqBonusMid,
+                double freqBonusLow,
+                double freqBonusFew,
+                double penaltyVision2,
+                double penaltyVision3,
+                double penaltyCtx,
+                double bonusVisionVocab) {
+
+                double wordFreq = LogFreq;
+
+                // A：詞典加分機制預先計算
+                double dictBonus = 0;
+                if (wordLen > 1 && Value != null) {
+                    if (wordLen >= 4) dictBonus = dictBonus4;
+                    else if (wordLen == 3) dictBonus = dictBonus3;
+                    else dictBonus = dictBonus2;
+                }
+
+                // A-2：結巴詞頻分層加分 (8階梯) + 長度給分預先計算
+                double freqBonus = 0;
+                if (wordLen > 1 && LogFreq != -18.0) {
+                    if (wordFreq > -9.2) freqBonus = freqBonusGodly;
+                    else if (wordFreq > -9.9) freqBonus = freqBonusLegendary;
+                    else if (wordFreq > -10.3) freqBonus = freqBonusEpic;
+                    else if (wordFreq > -11.0) freqBonus = freqBonusElite;
+                    else if (wordFreq > -13.3) freqBonus = freqBonusHigh;
+                    else if (wordFreq > -15.5) freqBonus = freqBonusMid;
+                    else if (wordFreq > -16.5) freqBonus = freqBonusLow;
+                    else freqBonus = freqBonusFew;
+
+                    if (wordLen >= 4) freqBonus += 9.0;
+                    else if (wordLen == 3) freqBonus += 3.0;
+                }
+
+                // C：Set 精確加扣分預先計算
+                double extraWeight = 0;
+                if (wordLen > 1) {
+                    if (IsVisionAnchor) {
+                        extraWeight += (wordLen == 2) ? penaltyVision2 : penaltyVision3;
+                    }
+                    if (IsContextAnchor) {
+                        extraWeight += penaltyCtx;
+                    }
+                    if (IsVisionVocab) {
+                        extraWeight += bonusVisionVocab;
+                    }
+                }
+
+                JiebaBaseScore = wordFreq + dictBonus + freqBonus + extraWeight;
+
+                if (LargeChildren != null) {
+                    foreach (KeyValuePair<char, TrieNode> child in LargeChildren) {
+                        child.Value.PrepareJiebaBaseScore(
+                            wordLen + 1,
+                            dictBonus2, dictBonus3, dictBonus4,
+                            freqBonusGodly, freqBonusLegendary, freqBonusEpic, freqBonusElite,
+                            freqBonusHigh, freqBonusMid, freqBonusLow, freqBonusFew,
+                            penaltyVision2, penaltyVision3, penaltyCtx, bonusVisionVocab);
+                    }
+                } else {
+                    for (int i = 0; i < SmallChildCount; i++) {
+                        SmallChildren[i].Node.PrepareJiebaBaseScore(
+                            wordLen + 1,
+                            dictBonus2, dictBonus3, dictBonus4,
+                            freqBonusGodly, freqBonusLegendary, freqBonusEpic, freqBonusElite,
+                            freqBonusHigh, freqBonusMid, freqBonusLow, freqBonusFew,
+                            penaltyVision2, penaltyVision3, penaltyCtx, bonusVisionVocab);
+                    }
+                }
+            }
+
+            public TrieNode GetOrAddChild(char key) {
+                TrieNode node;
+                if (TryGetChild(key, out node)) return node;
+
+                node = new TrieNode();
+                if (LargeChildren != null) {
+                    LargeChildren.Add(key, node);
+                    return node;
+                }
+
+                if (SmallChildCount < 4) {
+                    if (SmallChildren == null) {
+                        SmallChildren = new ChildEntry[2];
+                    } else if (SmallChildCount == SmallChildren.Length) {
+                        ChildEntry[] expanded = new ChildEntry[4];
+                        Array.Copy(SmallChildren, expanded, SmallChildCount);
+                        SmallChildren = expanded;
+                    }
+
+                    SmallChildren[SmallChildCount].Key = key;
+                    SmallChildren[SmallChildCount].Node = node;
+                    SmallChildCount++;
+                    return node;
+                }
+
+                LargeChildren = new Dictionary<char, TrieNode>(8);
+                for (int i = 0; i < SmallChildCount; i++) {
+                    LargeChildren.Add(SmallChildren[i].Key, SmallChildren[i].Node);
+                }
+                SmallChildren = null;
+                SmallChildCount = 0;
+                LargeChildren.Add(key, node);
+                return node;
+            }
         }
 
         // HMM 模型結構定義
@@ -155,6 +381,7 @@ namespace MyTools {
         // ContextLogic 微型規則結構
         class ContextRule {
             public List<ContextCondition> Conditions = new List<ContextCondition>();
+            public ContextCondition[] ConditionArray;
             public string Target;
         }
 
@@ -166,6 +393,7 @@ namespace MyTools {
         }
 
         static Dictionary<char, List<ContextRule>> FastContextRules = new Dictionary<char, List<ContextRule>>();
+        static ContextRule[][] FastContextRuleArray = new ContextRule[65536][];
 
         // PhraseLogic 邏輯
         class PhraseRule {
@@ -174,30 +402,278 @@ namespace MyTools {
 
             public List<string> LeftIncludes = new List<string>();
             public List<string> LeftExcludes = new List<string>();
-
             public List<string> RightIncludes = new List<string>();
             public List<string> RightExcludes = new List<string>();
+
+            // 轉換熱路徑用：LoadPhraseLogic 階段預拆 @精確比對與 contains 比對，避免每次 Substring/foreach/List 判斷。
+            public string[] LeftAtIncludes;
+            public string[] LeftContainsIncludes;
+            public string[] LeftAtExcludes;
+            public string[] LeftContainsExcludes;
+            public string[] RightAtIncludes;
+            public string[] RightContainsIncludes;
+            public string[] RightAtExcludes;
+            public string[] RightContainsExcludes;
+            public int IncludeRuleCount;
 
             public int WindowSize = 6;
             public int PunctuationMode = 1; // 預設 1 為穿越，0 為不穿越防火牆
             public int LengthThreshold = 4; // 門檻參數
         }
 
+        // BoostCVT 專用的精簡 JSEE 結構擷取器。
+        sealed class JseeStructureExtractor {
+            readonly string source;
+            readonly Dictionary<string, int> values = new Dictionary<string, int>(StringComparer.Ordinal);
+
+            public JseeStructureExtractor(string text) {
+                source = text ?? "";
+                IndexConstants();
+            }
+
+            static bool IsIdStart(char c) {
+                return char.IsLetter(c) || c == '_' || c == '$';
+            }
+
+            static bool IsIdChar(char c) {
+                return char.IsLetterOrDigit(c) || c == '_' || c == '$';
+            }
+
+            int SkipQuoted(int p) {
+                char quote = source[p++];
+                bool escaped = false;
+                while (p < source.Length) {
+                    char c = source[p++];
+                    if (escaped) escaped = false;
+                    else if (c == '\\') escaped = true;
+                    else if (c == quote) return p;
+                }
+                return source.Length;
+            }
+
+            int SkipTrivia(int p) {
+                while (p < source.Length) {
+                    if (char.IsWhiteSpace(source[p])) { p++; continue; }
+                    if (p + 1 < source.Length && source[p] == '/') {
+                        if (source[p + 1] == '/') {
+                            p += 2;
+                            while (p < source.Length && source[p] != '\r' && source[p] != '\n') p++;
+                            continue;
+                        }
+                        if (source[p + 1] == '*') {
+                            p += 2;
+                            while (p + 1 < source.Length && !(source[p] == '*' && source[p + 1] == '/')) p++;
+                            if (p + 1 < source.Length) p += 2;
+                            continue;
+                        }
+                    }
+                    break;
+                }
+                return p;
+            }
+
+            void IndexConstants() {
+                int p = 0;
+                while (p < source.Length) {
+                    char c = source[p];
+                    if (c == '"' || c == '\'' || c == '`') { p = SkipQuoted(p); continue; }
+                    if (p + 1 < source.Length && c == '/' && source[p + 1] == '/') {
+                        p += 2;
+                        while (p < source.Length && source[p] != '\r' && source[p] != '\n') p++;
+                        continue;
+                    }
+                    if (p + 1 < source.Length && c == '/' && source[p + 1] == '*') {
+                        p += 2;
+                        while (p + 1 < source.Length && !(source[p] == '*' && source[p + 1] == '/')) p++;
+                        if (p + 1 < source.Length) p += 2;
+                        continue;
+                    }
+                    if (!IsIdStart(c)) { p++; continue; }
+
+                    int token = p++;
+                    while (p < source.Length && IsIdChar(source[p])) p++;
+                    if (p - token != 5 || string.CompareOrdinal(source, token, "const", 0, 5) != 0) continue;
+
+                    p = SkipTrivia(p);
+                    if (p >= source.Length || !IsIdStart(source[p])) continue;
+                    int nameStart = p++;
+                    while (p < source.Length && IsIdChar(source[p])) p++;
+                    string name = source.Substring(nameStart, p - nameStart);
+                    p = SkipTrivia(p);
+                    if (p >= source.Length || source[p] != '=') continue;
+                    p = SkipTrivia(p + 1);
+                    if (p < source.Length && !values.ContainsKey(name)) values.Add(name, p);
+                }
+            }
+
+            int Match(int open, char left, char right) {
+                if (open < 0 || open >= source.Length || source[open] != left) return -1;
+                int depth = 0;
+                for (int p = open; p < source.Length; p++) {
+                    char c = source[p];
+                    if (c == '"' || c == '\'' || c == '`') { p = SkipQuoted(p) - 1; continue; }
+                    if (p + 1 < source.Length && c == '/' && source[p + 1] == '/') {
+                        p += 2;
+                        while (p < source.Length && source[p] != '\r' && source[p] != '\n') p++;
+                        continue;
+                    }
+                    if (p + 1 < source.Length && c == '/' && source[p + 1] == '*') {
+                        p += 2;
+                        while (p + 1 < source.Length && !(source[p] == '*' && source[p + 1] == '/')) p++;
+                        if (p + 1 < source.Length) p++;
+                        continue;
+                    }
+                    if (c == left) depth++;
+                    else if (c == right && --depth == 0) return p;
+                }
+                return -1;
+            }
+
+            bool TryBody(string name, char left, char right, out string body) {
+                body = null;
+                int p, end;
+                if (!values.TryGetValue(name, out p) || p >= source.Length || source[p] != left) return false;
+                end = Match(p, left, right);
+                if (end < 0) return false;
+                body = source.Substring(p + 1, end - p - 1);
+                return true;
+            }
+
+            public bool TryGetConstString(string name, out string value) {
+                value = null;
+                int p;
+                if (!values.TryGetValue(name, out p) || p >= source.Length || (source[p] != '"' && source[p] != '\'')) return false;
+                int end = SkipQuoted(p);
+                if (end <= p + 1 || source[end - 1] != source[p]) return false;
+                value = source.Substring(p + 1, end - p - 2);
+                return true;
+            }
+
+            public bool TryGetConstTemplate(string name, out string value) {
+                value = null;
+                int p;
+                if (!values.TryGetValue(name, out p) || p >= source.Length || source[p] != '`') return false;
+                int end = SkipQuoted(p);
+                if (end <= p + 1 || source[end - 1] != '`') return false;
+                value = source.Substring(p + 1, end - p - 2);
+                return true;
+            }
+
+            public bool TryGetConstObjectBody(string name, out string body) {
+                return TryBody(name, '{', '}', out body);
+            }
+
+            public bool TryGetConstSetBody(string name, out string body) {
+                body = null;
+                int p;
+                if (!values.TryGetValue(name, out p) || p + 3 > source.Length ||
+                    string.CompareOrdinal(source, p, "new", 0, 3) != 0) return false;
+                p = SkipTrivia(p + 3);
+                if (p + 3 > source.Length || string.CompareOrdinal(source, p, "Set", 0, 3) != 0) return false;
+                p = SkipTrivia(p + 3);
+                if (p >= source.Length || source[p] != '(') return false;
+                p = SkipTrivia(p + 1);
+                if (p >= source.Length || source[p] != '[') return false;
+                int end = Match(p, '[', ']');
+                if (end < 0) return false;
+                body = source.Substring(p + 1, end - p - 1);
+                return true;
+            }
+        }
+
         static Dictionary<char, List<PhraseRule>> FastPhraseRules = new Dictionary<char, List<PhraseRule>>();
+        static PhraseRule[][] FastPhraseRuleArray = new PhraseRule[65536][];
         static bool[] HasPhraseLogicStart = new bool[65536];
         static int[] MaxPhraseThreshold = new int[65536];
 
         static bool[] IsBarrierSymbol = new bool[65536];
 
-        static void LoadPhraseLogic(string source) {
+        static readonly string[] EmptyStringArray = new string[0];
+
+        static void SplitPhraseTags(List<string> rawTags, out string[] atTags, out string[] containsTags) {
+            if (rawTags == null || rawTags.Count == 0) {
+                atTags = EmptyStringArray;
+                containsTags = EmptyStringArray;
+                return;
+            }
+            List<string> atList = null;
+            List<string> containsList = null;
+            for (int i = 0; i < rawTags.Count; i++) {
+                string tag = rawTags[i];
+                if (string.IsNullOrEmpty(tag)) continue;
+                if (tag[0] == '@') {
+                    if (atList == null) atList = new List<string>();
+                    atList.Add(tag.Substring(1));
+                } else {
+                    if (containsList == null) containsList = new List<string>();
+                    containsList.Add(tag);
+                }
+            }
+            atTags = atList != null ? atList.ToArray() : EmptyStringArray;
+            containsTags = containsList != null ? containsList.ToArray() : EmptyStringArray;
+        }
+
+        static void PreparePhraseRule(PhraseRule rule) {
+            SplitPhraseTags(rule.LeftIncludes, out rule.LeftAtIncludes, out rule.LeftContainsIncludes);
+            SplitPhraseTags(rule.LeftExcludes, out rule.LeftAtExcludes, out rule.LeftContainsExcludes);
+            SplitPhraseTags(rule.RightIncludes, out rule.RightAtIncludes, out rule.RightContainsIncludes);
+            SplitPhraseTags(rule.RightExcludes, out rule.RightAtExcludes, out rule.RightContainsExcludes);
+            rule.IncludeRuleCount = rule.LeftAtIncludes.Length + rule.LeftContainsIncludes.Length + rule.RightAtIncludes.Length + rule.RightContainsIncludes.Length;
+        }
+
+        static bool IsExactMatchAt(string input, int start, string target) {
+            if (target == null) return false;
+            if (start < 0 || start + target.Length > input.Length) return false;
+            for (int i = 0; i < target.Length; i++) {
+                if (input[start + i] != target[i]) return false;
+            }
+            return true;
+        }
+
+        static bool HasLeftAtMatch(string input, int absoluteIdx, string[] tags) {
+            if (tags == null) return false;
+            for (int i = 0; i < tags.Length; i++) {
+                string tag = tags[i];
+                if (IsExactMatchAt(input, absoluteIdx - tag.Length, tag)) return true;
+            }
+            return false;
+        }
+
+        static bool HasRightAtMatch(string input, int rightStart, string[] tags) {
+            if (tags == null) return false;
+            for (int i = 0; i < tags.Length; i++) {
+                if (IsExactMatchAt(input, rightStart, tags[i])) return true;
+            }
+            return false;
+        }
+
+        static bool HasContainsMatch(string input, int viewStart, int viewLen, string[] tags) {
+            if (tags == null || viewLen <= 0) return false;
+            for (int i = 0; i < tags.Length; i++) {
+                if (IntrospectiveContains(input, viewStart, viewLen, tags[i])) return true;
+            }
+            return false;
+        }
+
+        static void LoadPhraseLogic(string source, JseeStructureExtractor extractor) {
+            FastPhraseRules.Clear();
+            Array.Clear(FastPhraseRuleArray, 0, FastPhraseRuleArray.Length);
+            Array.Clear(HasPhraseLogicStart, 0, HasPhraseLogicStart.Length);
+            Array.Clear(MaxPhraseThreshold, 0, MaxPhraseThreshold.Length);
+            Array.Clear(IsBarrierSymbol, 0, IsBarrierSymbol.Length);
+
             // 標點符號防火牆
             string barriers = "。.，,！!？?；;…\n\r";
 
             foreach (char c in barriers) IsBarrierSymbol[c] = true;
 
-            Match m = Regex.Match(source, @"const\s+PhraseLogic\s*=\s*\{(.*?)\};", RegexOptions.Singleline);
-            if (!m.Success) return;
-            var matches = Regex.Matches(m.Groups[1].Value, @"""(?<k>[^""]+)"":\s*""(?<v>[^""]+)""");
+            string phraseLogicBody;
+            if (!extractor.TryGetConstObjectBody("PhraseLogic", out phraseLogicBody)) {
+                Match legacyMatch = Regex.Match(source, @"const\s+PhraseLogic\s*=\s*\{(.*?)\};", RegexOptions.Singleline);
+                if (!legacyMatch.Success) return;
+                phraseLogicBody = legacyMatch.Groups[1].Value;
+            }
+            var matches = Regex.Matches(phraseLogicBody, @"""(?<k>[^""]+)"":\s*""(?<v>[^""]+)""");
 
             foreach (Match entry in matches) {
                 string k = entry.Groups["k"].Value;
@@ -266,8 +742,13 @@ namespace MyTools {
                     if (rule.LengthThreshold > MaxPhraseThreshold[firstChar]) {
                         MaxPhraseThreshold[firstChar] = rule.LengthThreshold;
                     }
+                    PreparePhraseRule(rule);
                     FastPhraseRules[firstChar].Add(rule);
                 }
+            }
+
+            foreach (KeyValuePair<char, List<PhraseRule>> kvp in FastPhraseRules) {
+                FastPhraseRuleArray[kvp.Key] = kvp.Value.ToArray();
             }
         }
 
@@ -278,24 +759,26 @@ namespace MyTools {
             char firstChar = input[start + i];
             if (!HasPhraseLogicStart[firstChar]) return false;
 
-            List<PhraseRule> rules = FastPhraseRules[firstChar];
-            int absoluteIdx = start + i;
+            PhraseRule[] rules = FastPhraseRuleArray[firstChar];
+            if (rules == null || rules.Length == 0) return false;
 
+            int absoluteIdx = start + i;
             PhraseRule targetRule = null;
             int maxKeyLen = 0;
 
-            for (int rIdx = 0; rIdx < rules.Count; rIdx++) {
+            for (int rIdx = 0; rIdx < rules.Length; rIdx++) {
                 PhraseRule rule = rules[rIdx];
                 string pKey = rule.Key;
+                int pKeyLen = pKey.Length;
 
-                if (i + pKey.Length <= len) {
+                if (pKeyLen > maxKeyLen && i + pKeyLen <= len) {
                     bool keyMatch = true;
-                    for (int k = 0; k < pKey.Length; k++) {
+                    for (int k = 0; k < pKeyLen; k++) {
                         if (input[absoluteIdx + k] != pKey[k]) { keyMatch = false; break; }
                     }
 
-                    if (keyMatch && pKey.Length > maxKeyLen) {
-                        maxKeyLen = pKey.Length;
+                    if (keyMatch) {
+                        maxKeyLen = pKeyLen;
                         targetRule = rule;
                     }
                 }
@@ -305,6 +788,7 @@ namespace MyTools {
 
             PhraseRule finalRule = targetRule;
             string finalKey = finalRule.Key;
+            int finalKeyLen = finalKey.Length;
 
             int currentWinSize = finalRule.WindowSize;
             bool pBarrierActive = finalRule.PunctuationMode == 0;
@@ -321,110 +805,33 @@ namespace MyTools {
             int leftLen = absoluteIdx - leftStart;
 
             // 向右計算視窗
-            int rightEndLimit = Math.Min(start + len, absoluteIdx + finalKey.Length + currentWinSize);
-            int rightScanEnd = absoluteIdx + finalKey.Length;
+            int rightStart = absoluteIdx + finalKeyLen;
+            int rightEndLimit = Math.Min(start + len, rightStart + currentWinSize);
+            int rightScanEnd = rightStart;
             while (rightScanEnd < rightEndLimit) {
                 char rightChar = input[rightScanEnd];
                 if (pBarrierActive && IsBarrierSymbol[rightChar]) break;
                 rightScanEnd++;
             }
-            int rightStart = absoluteIdx + finalKey.Length;
             int rightLen = rightScanEnd - rightStart;
 
-            bool isTriggered = false;
-
-            // 向左比對 - Excludes
-            if (finalRule.LeftExcludes.Count > 0) {
-                bool hasExclude = false;
-                foreach (var tag in finalRule.LeftExcludes) {
-                    bool hasAt = tag.Length > 0 && tag[0] == '@';
-                    string targetTag = hasAt ? tag.Substring(1) : tag;
-
-                    if (hasAt) {
-                        int checkStart = absoluteIdx - targetTag.Length;
-                        if (checkStart >= 0) {
-                            bool isMatch = true;
-                            for (int t = 0; t < targetTag.Length; t++) {
-                                if (input[checkStart + t] != targetTag[t]) { isMatch = false; break; }
-                            }
-                            if (isMatch) { hasExclude = true; break; }
-                        }
-                    } else {
-                        if (IntrospectiveContains(input, leftStart, leftLen, targetTag)) { hasExclude = true; break; }
-                    }
-                }
-                if (hasExclude) return false;
+            if (HasLeftAtMatch(input, absoluteIdx, finalRule.LeftAtExcludes) ||
+                HasContainsMatch(input, leftStart, leftLen, finalRule.LeftContainsExcludes) ||
+                HasRightAtMatch(input, rightStart, finalRule.RightAtExcludes) ||
+                HasContainsMatch(input, rightStart, rightLen, finalRule.RightContainsExcludes)) {
+                return false;
             }
 
-            // 向左比對 - Includes
-            if (finalRule.LeftIncludes.Count > 0) {
-                foreach (var tag in finalRule.LeftIncludes) {
-                    bool hasAt = tag.Length > 0 && tag[0] == '@';
-                    string targetTag = hasAt ? tag.Substring(1) : tag;
+            bool isTriggered =
+                HasLeftAtMatch(input, absoluteIdx, finalRule.LeftAtIncludes) ||
+                HasContainsMatch(input, leftStart, leftLen, finalRule.LeftContainsIncludes) ||
+                HasRightAtMatch(input, rightStart, finalRule.RightAtIncludes) ||
+                HasContainsMatch(input, rightStart, rightLen, finalRule.RightContainsIncludes);
 
-                    if (hasAt) {
-                        int checkStart = absoluteIdx - targetTag.Length;
-                        if (checkStart >= 0) {
-                            bool isMatch = true;
-                            for (int t = 0; t < targetTag.Length; t++) {
-                                if (input[checkStart + t] != targetTag[t]) { isMatch = false; break; }
-                            }
-                            if (isMatch) { isTriggered = true; break; }
-                        }
-                    } else {
-                        if (IntrospectiveContains(input, leftStart, leftLen, targetTag)) { isTriggered = true; break; }
-                    }
-                }
-            }
-
-            // 向右比對 - Excludes
-            if (finalRule.RightExcludes.Count > 0) {
-                bool hasExclude = false;
-                foreach (var tag in finalRule.RightExcludes) {
-                    bool hasAt = tag.Length > 0 && tag[0] == '@';
-                    string targetTag = hasAt ? tag.Substring(1) : tag;
-
-                    if (hasAt) {
-                        int checkStart = absoluteIdx + finalKey.Length;
-                        if (checkStart + targetTag.Length <= input.Length) {
-                            bool isMatch = true;
-                            for (int t = 0; t < targetTag.Length; t++) {
-                                if (input[checkStart + t] != targetTag[t]) { isMatch = false; break; }
-                            }
-                            if (isMatch) { hasExclude = true; break; }
-                        }
-                    } else {
-                        if (IntrospectiveContains(input, rightStart, rightLen, targetTag)) { hasExclude = true; break; }
-                    }
-                }
-                if (hasExclude) return false;
-            }
-
-            // 向右比對 - Includes
-            if (finalRule.RightIncludes.Count > 0) {
-                foreach (var tag in finalRule.RightIncludes) {
-                    bool hasAt = tag.Length > 0 && tag[0] == '@';
-                    string targetTag = hasAt ? tag.Substring(1) : tag;
-
-                    if (hasAt) {
-                        int checkStart = absoluteIdx + finalKey.Length;
-                        if (checkStart + targetTag.Length <= input.Length) {
-                            bool isMatch = true;
-                            for (int t = 0; t < targetTag.Length; t++) {
-                                if (input[checkStart + t] != targetTag[t]) { isMatch = false; break; }
-                            }
-                            if (isMatch) { isTriggered = true; break; }
-                        }
-                    } else {
-                        if (IntrospectiveContains(input, rightStart, rightLen, targetTag)) { isTriggered = true; break; }
-                    }
-                }
-            }
-
-            if ((finalRule.LeftIncludes.Count == 0 && finalRule.RightIncludes.Count == 0) || isTriggered) {
+            if (finalRule.IncludeRuleCount == 0 || isTriggered) {
                 localReplaceCount++;
                 matchedTarget = finalRule.Target;
-                matchLen = finalKey.Length;
+                matchLen = finalKeyLen;
                 return true;
             }
 
@@ -438,21 +845,85 @@ namespace MyTools {
         static Func<int, int, string, string> LogicDelegate = null;
         static bool[] HasContextLogic = new bool[65536];
 
+        sealed class CharWriter {
+            char[] buffer;
+            int length;
+
+            public CharWriter(int capacity) {
+                buffer = new char[capacity > 0 ? capacity : 16];
+                length = 0;
+            }
+
+            public int Length {
+                get { return length; }
+                set {
+                    if (value < 0) value = 0;
+                    EnsureCapacity(value);
+                    length = value;
+                }
+            }
+
+            public int Capacity {
+                get { return buffer.Length; }
+                set { EnsureCapacity(value); }
+            }
+
+            void EnsureCapacity(int needed) {
+                if (needed <= buffer.Length) return;
+                int newSize = buffer.Length;
+                if (newSize < 16) newSize = 16;
+                while (newSize < needed) {
+                    int grown = newSize * 2;
+                    if (grown <= newSize) { newSize = needed; break; }
+                    newSize = grown;
+                }
+                char[] next = new char[newSize];
+                if (length > 0) Array.Copy(buffer, 0, next, 0, length);
+                buffer = next;
+            }
+
+            public void Append(char c) {
+                EnsureCapacity(length + 1);
+                buffer[length++] = c;
+            }
+
+            public void Append(string value) {
+                if (string.IsNullOrEmpty(value)) return;
+                int valueLen = value.Length;
+                EnsureCapacity(length + valueLen);
+                value.CopyTo(0, buffer, length, valueLen);
+                length += valueLen;
+            }
+
+            public void Append(string value, int startIndex, int count) {
+                if (string.IsNullOrEmpty(value) || count <= 0) return;
+                EnsureCapacity(length + count);
+                value.CopyTo(startIndex, buffer, length, count);
+                length += count;
+            }
+
+            public override string ToString() {
+                return length == 0 ? string.Empty : new string(buffer, 0, length);
+            }
+        }
+
         // 執行緒專屬記憶體池 (Zero-Allocation 核心)
         class ThreadState {
             public double[] routeScore = new double[1024];
             public int[] routeNext = new int[1024];
+            public TrieNode[] routeNode = new TrieNode[1024];
             public double[] vBuf = new double[4096];
             public int[] bpBuf = new int[4096];
             public int[] spBuf = new int[1024];
-            public StringBuilder sb = new StringBuilder(1024);
-            public StringBuilder fbSb = new StringBuilder(128);
+            public CharWriter sb = new CharWriter(1024);
+            public CharWriter fbSb = new CharWriter(128);
 
             public void EnsureSize(int len) {
                 if (routeScore.Length < len + 1) {
                     int newSize = len + 4096;
                     routeScore = new double[newSize];
                     routeNext = new int[newSize];
+                    routeNode = new TrieNode[newSize];
                     sb.Capacity = newSize;
                 }
             }
@@ -549,6 +1020,7 @@ namespace MyTools {
                     if (!hasNewerUpdate && !mustReadJieba) return 0;
 
                     string sourceJsee = File.Exists(jseePath) ? File.ReadAllText(jseePath, Encoding.UTF8) : "";
+                    JseeStructureExtractor sourceJseeExtractor = new JseeStructureExtractor(sourceJsee);
 
                     Func<string, string, bool, string> LoadData = (blockName, fileName, force) => {
                         if (string.IsNullOrEmpty(fileName)) return "";
@@ -559,7 +1031,7 @@ namespace MyTools {
                             return File.ReadAllText(txtPath, Encoding.UTF8);
                         }
                         if (!hasNewerUpdate && !force) return "";
-                        if (!string.IsNullOrEmpty(sourceJsee)) return ExtractBlock(sourceJsee, blockName);
+                        if (!string.IsNullOrEmpty(sourceJsee)) return ExtractBlock(sourceJsee, blockName, sourceJseeExtractor);
                         return "";
                     };
 
@@ -661,6 +1133,7 @@ namespace MyTools {
                 }
 
                 string source = File.ReadAllText(macroPath, Encoding.UTF8);
+                JseeStructureExtractor jseeExtractor = new JseeStructureExtractor(source);
                 string baseDir = Path.GetDirectoryName(macroPath);
                 DateTime jseeDate = File.GetLastWriteTime(macroPath);
 
@@ -703,7 +1176,7 @@ namespace MyTools {
                     if (isExtDict && File.Exists(txtPath) && File.GetLastWriteTime(txtPath) > jseeDate) {
                         return File.ReadAllText(txtPath, Encoding.UTF8);
                     }
-                    return ExtractBlock(source, blockName);
+                    return ExtractBlock(source, blockName, jseeExtractor);
                 };
 
                 string rawTWVariantsStr = LoadSmartBlock("rawTWVariants", fileTWVariants, false);
@@ -716,7 +1189,7 @@ namespace MyTools {
                 string rawHmmDataStr = LoadSmartBlock("rawHmmData", fileHmm, isJiebaActive);
                 string rawTWVariantsPhrasesStr = LoadSmartBlock("rawTWVariantsPhrases", fileTWVariantsPhrases, false);
 
-                LoadPhraseLogic(source);
+                LoadPhraseLogic(source, jseeExtractor);
 
                 if (string.IsNullOrEmpty(rawPhraseDataStr) && string.IsNullOrEmpty(rawCharDataStr) && (isS2T || isT2S)) {
                     MessageBox.Show("Dictionary data missing.", "BoostCVT", MessageBoxButtons.OK);
@@ -728,13 +1201,13 @@ namespace MyTools {
 
                 // 結巴有開，就載入 Vision 陣列作為加扣分依據
                 if ((isVis || isJiebaActive) && !isShift) {
-                    VisionAnchors = ExtractSet(source, "VisionAnchors");
-                    VisionVocabs = ExtractSet(source, "VisionVocabs");
+                    VisionAnchors = ExtractSet(source, "VisionAnchors", jseeExtractor);
+                    VisionVocabs = ExtractSet(source, "VisionVocabs", jseeExtractor);
                 }
 
                 if (isCtx && !isShift) {
-                    ContextLogicAnchors = ExtractSet(source, "ContextLogicAnchors");
-                    CompileContextLogic(source, mode);
+                    ContextLogicAnchors = ExtractSet(source, "ContextLogicAnchors", jseeExtractor);
+                    CompileContextLogic(source, mode, jseeExtractor);
                 }
 
                 var finalDict = new Dictionary<string, string>();
@@ -777,7 +1250,10 @@ namespace MyTools {
                 Func<string, string> applyTWVariants = (str) => {
                     if (!isS2T || isAlt || isShift) return str;
                     StringBuilder sb = new StringBuilder(str.Length);
-                    foreach (char c in str) sb.Append(variantMap.ContainsKey(c) ? variantMap[c] : c);
+                    foreach (char c in str) {
+                        char mappedChar;
+                        sb.Append(variantMap.TryGetValue(c, out mappedChar) ? mappedChar : c);
+                    }
                     return sb.ToString();
                 };
 
@@ -843,7 +1319,12 @@ namespace MyTools {
 
                                 string firstTarget = valPart.Split(' ')[0].Trim();
 
-                                string target = exceptionMap.ContainsKey(key) ? exceptionMap[key] : (twPhrasesMap.ContainsKey(firstTarget) ? twPhrasesMap[firstTarget] : applyTWVariants(firstTarget));
+                                string target;
+                                if (!exceptionMap.TryGetValue(key, out target)) {
+                                    if (!twPhrasesMap.TryGetValue(firstTarget, out target)) {
+                                        target = applyTWVariants(firstTarget);
+                                    }
+                                }
                                 if (!finalDict.ContainsKey(key)) finalDict[key] = target;
 
                                 if (isCharFile && key.Length == 1 && valPart.Length > 0) {
@@ -872,7 +1353,7 @@ namespace MyTools {
                     parseMainData(rawCharDataStr, true);
                 }
 
-                LoadPhraseLogic(source);
+                LoadPhraseLogic(source, jseeExtractor);
                 foreach (var kvp in FastPhraseRules) {
                     foreach (var rule in kvp.Value) {
                         if (!string.IsNullOrEmpty(rule.Target)) {
@@ -890,12 +1371,14 @@ namespace MyTools {
                         for (int i = 0; i < twKey.Length; i++) {
                             char tcChar = twKey[i];
                             // 原字形精確反查
-                            if (reverseCharMap.ContainsKey(tcChar)) {
-                                scKeySb.Append(reverseCharMap[tcChar]);
+                            string reverseChar;
+                            if (reverseCharMap.TryGetValue(tcChar, out reverseChar)) {
+                                scKeySb.Append(reverseChar);
                             } else {
                                 // 嘗試降維再查
-                                char normChar = variantMap.ContainsKey(tcChar) ? variantMap[tcChar] : tcChar;
-                                scKeySb.Append(reverseCharMap.ContainsKey(normChar) ? reverseCharMap[normChar] : normChar.ToString());
+                                char mappedChar;
+                                char normChar = variantMap.TryGetValue(tcChar, out mappedChar) ? mappedChar : tcChar;
+                                scKeySb.Append(reverseCharMap.TryGetValue(normChar, out reverseChar) ? reverseChar : normChar.ToString());
                             }
                         }
 
@@ -915,7 +1398,8 @@ namespace MyTools {
                     foreach (var kvp in variantMap) {
                         string twChar = kvp.Key.ToString(); string genericChar = kvp.Value.ToString();
                         if (!finalDict.ContainsKey(twChar)) {
-                            if (finalDict.ContainsKey(genericChar)) finalDict[twChar] = finalDict[genericChar];
+                            string genericTarget;
+                            if (finalDict.TryGetValue(genericChar, out genericTarget)) finalDict[twChar] = genericTarget;
                             else finalDict[twChar] = genericChar;
                         }
                     }
@@ -938,21 +1422,47 @@ namespace MyTools {
                 // 解析並載入 Jieba 詞頻
                 if (isJiebaActive && !string.IsNullOrEmpty(rawJiebaDataStr)) {
                     double logTotal = Math.Log(34732707.0); // 標準 N=3473萬
-                    using (StringReader r = new StringReader(rawJiebaDataStr)) {
-                        string l; while ((l = r.ReadLine()) != null) {
-                            if (string.IsNullOrWhiteSpace(l) || l[0] == '#') continue;
-                            int space1 = l.IndexOf(' ');
-                            if (space1 > 0) {
-                                string word = l.Substring(0, space1);
-                                int space2 = l.IndexOf(' ', space1 + 1);
-                                string freqStr = space2 == -1 ? l.Substring(space1 + 1) : l.Substring(space1 + 1, space2 - space1 - 1);
+                    Dictionary<int, double> jiebaLogFreqCache = new Dictionary<int, double>(4096);
+                    int dataLength = rawJiebaDataStr.Length;
+                    int lineStart = 0;
 
-                                double freq;
-                                if (double.TryParse(freqStr, out freq)) {
-                                    AddWord(rootNodes, word, null, Math.Log(freq) - logTotal);
+                    // 直接掃描原始字典字串，避免 58 萬行的 ReadLine、Substring 與詞頻字串配置。
+                    while (lineStart < dataLength) {
+                        int lineEnd = lineStart;
+                        while (lineEnd < dataLength && rawJiebaDataStr[lineEnd] != '\n') lineEnd++;
+
+                        int contentEnd = lineEnd;
+                        if (contentEnd > lineStart && rawJiebaDataStr[contentEnd - 1] == '\r') contentEnd--;
+
+                        if (contentEnd > lineStart && rawJiebaDataStr[lineStart] != '#') {
+                            int space1 = lineStart;
+                            while (space1 < contentEnd && rawJiebaDataStr[space1] != ' ') space1++;
+
+                            if (space1 > lineStart && space1 < contentEnd) {
+                                int freqStart = space1 + 1;
+                                int freqEnd = freqStart;
+                                while (freqEnd < contentEnd && rawJiebaDataStr[freqEnd] != ' ') freqEnd++;
+
+                                double logFreq;
+                                if (TryGetJiebaLogFreq(
+                                    rawJiebaDataStr,
+                                    freqStart,
+                                    freqEnd - freqStart,
+                                    logTotal,
+                                    jiebaLogFreqCache,
+                                    out logFreq)) {
+
+                                    AddJiebaWord(
+                                        rootNodes,
+                                        rawJiebaDataStr,
+                                        lineStart,
+                                        space1 - lineStart,
+                                        logFreq);
                                 }
                             }
                         }
+
+                        lineStart = lineEnd + 1;
                     }
 
                     // 載入 UserDict
@@ -971,7 +1481,18 @@ namespace MyTools {
                                             freq = parsedFreq;
                                         }
                                     }
-                                    AddWord(rootNodes, word, null, Math.Log(freq) - logTotal);
+
+                                    double userLogFreq;
+                                    int integerFreq = (freq > 0 && freq <= int.MaxValue) ? (int)freq : 0;
+                                    if (integerFreq > 0 && freq == integerFreq) {
+                                        if (!jiebaLogFreqCache.TryGetValue(integerFreq, out userLogFreq)) {
+                                            userLogFreq = Math.Log(freq) - logTotal;
+                                            jiebaLogFreqCache[integerFreq] = userLogFreq;
+                                        }
+                                    } else {
+                                        userLogFreq = Math.Log(freq) - logTotal;
+                                    }
+                                    AddWord(rootNodes, word, null, userLogFreq);
                                 }
                             }
                         }
@@ -1045,16 +1566,21 @@ namespace MyTools {
                 int totalLen = fullInput.Length;
 
                 // 微型斷句隔離 (Micro-Chunking) 
-                int targetChunkSize = 65536; 
+                int targetChunkSize =
+                    mode.StartsWith("T2S", StringComparison.Ordinal) && !isJiebaActive
+                        ? 262144
+                        : 65536; 
                 int fastSkipLimit = (mode == "S2TWP" || mode == "TW2SP") ? 0x21 : 0x80;
                 List<int> cutsList = new List<int>();
                 cutsList.Add(0);
                 int expectedPos = 0;
 
                 while (expectedPos + targetChunkSize < totalLen) {
-                    int safeCut = fullInput.IndexOf('\n', expectedPos + targetChunkSize);
+                    int searchStart = expectedPos + targetChunkSize;
+                    int searchLength = Math.Min(targetChunkSize * 3, totalLen - searchStart);
+                    int safeCut = fullInput.IndexOf('\n', searchStart, searchLength);
 
-                    if (safeCut != -1 && safeCut - expectedPos < targetChunkSize * 4) {
+                    if (safeCut != -1) {
                         cutsList.Add(safeCut + 1);
                         expectedPos = safeCut + 1;
                     } else {
@@ -1079,6 +1605,7 @@ namespace MyTools {
                 int totalChunks = cutsList.Count - 1;
 
                 string[] chunksOut = new string[totalChunks];
+                int[] chunkReplaceCounts = new int[totalChunks];
                 int totalReplaceCount = 0;
 
                 // 配置加分與懲罰常數 (權重控制面板)
@@ -1096,6 +1623,27 @@ namespace MyTools {
                 double FREQ_BONUS_MID = 2.0;
                 double FREQ_BONUS_LOW = 0.5;
                 double FREQ_BONUS_FEW = 0.1;
+
+                // 動態加扣分常數
+                double PENALTY_VISION_2 = -2.5; // VisionAnchors 2字詞扣分
+                double PENALTY_VISION_3 = -0.5; // VisionAnchors 3字詞(含以上)扣分
+                double PENALTY_CTX = -0.5; // ContextLogicAnchors 扣分
+                double BONUS_VISION_VOCAB = 15.0; // VisionVocabs 額外加分
+
+                // Jieba DAG 候選詞固定加扣分預先計算，避免在最內層重複判斷
+                if (isJiebaActive) {
+                    for (int rootIndex = 0; rootIndex < rootNodes.Length; rootIndex++) {
+                        TrieNode rootNode = rootNodes[rootIndex];
+                        if (rootNode != null) {
+                            rootNode.PrepareJiebaBaseScore(
+                                1,
+                                DICT_BONUS_2, DICT_BONUS_3, DICT_BONUS_4,
+                                FREQ_BONUS_GODLY, FREQ_BONUS_LEGENDARY, FREQ_BONUS_EPIC, FREQ_BONUS_ELITE,
+                                FREQ_BONUS_HIGH, FREQ_BONUS_MID, FREQ_BONUS_LOW, FREQ_BONUS_FEW,
+                                PENALTY_VISION_2, PENALTY_VISION_3, PENALTY_CTX, BONUS_VISION_VOCAB);
+                        }
+                    }
+                }
 
                 string ONE_TO_MANY_S2T = "㐹万丑个丰了于云亘仆仇仑价仿伙余佛佣俊修借僵克党具冢冬冲凄准凌几凶出划别刮制勋千升卜占卤卷厂历厘参发只台叶叹吁吃合吊同后向吣呆周咨咸咽哄哗唇啮喂噪回团困坐坛坝坯埙堤复夫夸夹奸姜娘娴宁它家尝尸尽局岩岳巨布帘席干并幸广庵弥弦当录彩征径御志念恤恶愈愿戚扇才扎托扣折抵拐拿挂挨挽捆捍据搜摆斗斤斫旋昆暗曲札术朱朴杆杠杯杰松板极果枪柜栗核梁棱檗欲毁汇沈沾泛注浚涂涌淀游溪滟漓澄炼烟焰熏狸玩琅璇症皂矩确硷私秋种穗筑筱签糊系累纤绱绷耇胄背胜胡脏腊腌膻致舍艳芸苏苔苹范荐荡荫药获蒙蔑藤虫蚝蜡蝎表袅裥证谥谷豆象赝赞跖辟迹适郁酸采里鉴针钟钥钫钻铲链锄锫镋镎镢镰闲雕面须饥鹇洒虱湿袜";
                 string ONE_TO_MANY_T2S = "么乾仝俱像儘剋劃劄勣叚吒哩喆噁噹坏堃夥崙廬彷徵戰扞擣於昇椀椏氾沈淼澂瀋瀰牴犇甦甯畫瞭礆祇祕筦箚絜綵線耑脩菉蒐薹藉蘋衹袷襬覆託訢諫諮譾讎谿貲買迺逕邨釐鉅鍊鍾鏇鑪钁開閒阪陞靦韝頫願颺餘餬餱餵驄鵰麪麴麵麼麽齧龢";
@@ -1153,8 +1701,8 @@ namespace MyTools {
                                     step = 2;
                                 }
 
-                                if (cp >= 0xF900 && FastReplaceMap.ContainsKey(cp)) {
-                                    int rep = FastReplaceMap[cp];
+                                int rep = GetFastReplacement(cp);
+                                if (rep != 0) {
                                     if (rep <= 0xFFFF) sbClean.Append((char)rep);
                                     else sbClean.Append(char.ConvertFromUtf32(rep));
                                     compatReplaceCount++;
@@ -1185,18 +1733,21 @@ namespace MyTools {
 
                         double[] routeScore = state.routeScore;
                         int[] routeNext = state.routeNext;
-                        StringBuilder sb = state.sb;
-                        StringBuilder fbSb = state.fbSb;
+                        TrieNode[] routeNode = state.routeNode;
+                        CharWriter sb = state.sb;
+                        CharWriter fbSb = state.fbSb;
                         sb.Length = 0;
 
                         if (isJiebaActive) {
                             // 第 1 階段：Jieba DAG + DP 路由計算
                             routeScore[len] = 0;
                             routeNext[len] = len;
+                            routeNode[len] = null;
 
                             Action<int, int> runViterbi = (startPtr, obsLen) => {
                                 if (hmm == null || obsLen == 0) {
                                     routeNext[startPtr] = startPtr + obsLen;
+                                    routeNode[startPtr] = null;
                                     return;
                                 }
                                 state.EnsureViterbiSize(obsLen);
@@ -1242,11 +1793,13 @@ namespace MyTools {
                                     if (s == 2 || s == 3) {
                                         int hwLen = k - begin + 1;
                                         routeNext[startPtr + begin] = startPtr + begin + hwLen;
+                                        routeNode[startPtr + begin] = null;
                                         begin = k + 1;
                                     }
                                 }
                                 if (begin < obsLen) {
                                     routeNext[startPtr + begin] = startPtr + obsLen;
+                                    routeNode[startPtr + begin] = null;
                                 }
                             };
 
@@ -1254,12 +1807,10 @@ namespace MyTools {
                                 char firstChar = localInput[start + idx];
                                 if (firstChar < fastSkipLimit) {
                                     routeScore[idx] = routeScore[idx + 1];
-                                    routeNext[idx] = idx + 1;
                                     // 區塊跳躍 (反向單步)
                                     while (idx - 1 >= 0 && localInput[start + idx - 1] < fastSkipLimit) {
                                         idx--;
                                         routeScore[idx] = routeScore[idx + 1];
-                                        routeNext[idx] = idx + 1;
                                     }
                                     continue;
                                 }
@@ -1267,89 +1818,57 @@ namespace MyTools {
                                 TrieNode node = rootNodes[firstChar];
                                 double bestScore = double.NegativeInfinity;
                                 int bestNext = idx + 1;
+                                TrieNode bestNode = null;
 
                                 if (node == null) {
                                     routeScore[idx] = -18.0 + routeScore[idx + 1];
                                     routeNext[idx] = idx + 1;
+                                    routeNode[idx] = null;
                                     continue;
                                 }
 
-                                // 動態加扣分常數
-                                double PENALTY_VISION_2 = -2.5; // VisionAnchors 2字詞扣分
-                                double PENALTY_VISION_3 = -0.5; // VisionAnchors 3字詞(含以上)扣分
-                                double PENALTY_CTX = -0.5; // ContextLogicAnchors 扣分
-                                double BONUS_VISION_VOCAB = 15.0; // VisionVocabs 額外加分
+                                // 單字葉節點快速路徑：沒有任何子節點時，不進入通用 DAG 候選搜尋迴圈。
+                                if (!node.HasChildren) {
+                                    double leafPenalty = IsOneToMany[firstChar] ? PENALTY_ONE_TO_MANY : 0;
+                                    routeScore[idx] = node.JiebaBaseScore + leafPenalty + routeScore[idx + 1];
+                                    routeNext[idx] = idx + 1;
+                                    routeNode[idx] = node;
+                                    continue;
+                                }
 
                                 int j = idx;
                                 TrieNode curr = node;
                                 while (j < len) {
                                     if (curr.LogFreq != -18.0 || curr.Value != null || j == idx) {
-                                        double wordFreq = curr.LogFreq;
                                         int wordLen = j - idx + 1;
 
-                                        // A：詞典加分機制
-                                        double dictBonus = 0;
-                                        if (wordLen > 1 && curr.Value != null) {
-                                            if (wordLen >= 4) dictBonus = DICT_BONUS_4;
-                                            else if (wordLen == 3) dictBonus = DICT_BONUS_3;
-                                            else dictBonus = DICT_BONUS_2;
-                                        }
-
-                                        // A-2：結巴詞頻分層加分 (8階梯) + 長度給分
-                                        double freqBonus = 0;
-                                        if (wordLen > 1 && curr.LogFreq != -18.0) {
-                                            if (wordFreq > -9.2) freqBonus = FREQ_BONUS_GODLY;
-                                            else if (wordFreq > -9.9) freqBonus = FREQ_BONUS_LEGENDARY;
-                                            else if (wordFreq > -10.3) freqBonus = FREQ_BONUS_EPIC;
-                                            else if (wordFreq > -11.0) freqBonus = FREQ_BONUS_ELITE;
-                                            else if (wordFreq > -13.3) freqBonus = FREQ_BONUS_HIGH;
-                                            else if (wordFreq > -15.5) freqBonus = FREQ_BONUS_MID;
-                                            else if (wordFreq > -16.5) freqBonus = FREQ_BONUS_LOW;
-                                            else freqBonus = FREQ_BONUS_FEW;
-
-                                            if (wordLen >= 4) freqBonus += 9.0;
-                                            else if (wordLen == 3) freqBonus += 3.0;
-                                        }
-
-                                        // B：一對多單字懲罰機制 (直接定址優化)
+                                        // 一對多單字懲罰機制 (直接定址優化)
                                         double penalty = 0;
                                         if (wordLen == 1 && IsOneToMany[localInput[start + idx]]) {
                                             penalty = PENALTY_ONE_TO_MANY;
                                         }
 
-                                        // C: 針對 Set 進行精確加扣分
-                                        double extraWeight = 0;
-                                        if (wordLen > 1) {
-                                            if (curr.IsVisionAnchor) {
-                                                extraWeight += (wordLen == 2) ? PENALTY_VISION_2 : PENALTY_VISION_3;
-                                            }
-                                            if (curr.IsContextAnchor) {
-                                                extraWeight += PENALTY_CTX;
-                                            }
-                                            if (curr.IsVisionVocab) {
-                                                extraWeight += BONUS_VISION_VOCAB;
-                                            }
-                                        }
-
-                                        if (j == idx && wordFreq == -18.0) wordFreq = -18.0;
-
                                         // 總分計算
-                                        double score = wordFreq + dictBonus + freqBonus + penalty + extraWeight + routeScore[j + 1];
+                                        double score = curr.JiebaBaseScore + penalty + routeScore[j + 1];
                                         if (score > bestScore) {
                                             bestScore = score;
                                             bestNext = j + 1;
+                                            bestNode = curr;
                                         }
                                     }
                                     j++;
                                     if (j < len) {
-                                        if ((curr.FastMask & (1UL << (localInput[start + j] & 63))) == 0) break;
+                                        char nextChar = localInput[start + j];
+                                        if ((curr.FastMask & (1UL << (nextChar & 63))) == 0 ||
+                                            (curr.FastMask2 & (1UL << ((nextChar >> 6) & 63))) == 0) break;
                                         TrieNode nxtNode = null;
-                                        curr = (curr.Children != null && curr.Children.TryGetValue(localInput[start + j], out nxtNode)) ? nxtNode : null;
+                                        curr = curr.TryGetChild(nextChar, out nxtNode) ? nxtNode : null;
                                         if (curr == null) break;
                                     }
                                 }
                                 routeScore[idx] = bestScore;
                                 routeNext[idx] = bestNext;
+                                routeNode[idx] = bestNode;
                             }
 
                             // 第 1.5 階段：HMM 處理連續單字
@@ -1431,7 +1950,7 @@ namespace MyTools {
                                     if (aNode != null) {
                                         for (int k = 1; k < _wLen; k++) {
                                             TrieNode nextN = null;
-                                            if (aNode.Children != null && aNode.Children.TryGetValue(localInput[start + extractIdx + k], out nextN)) {
+                                            if (aNode.TryGetChild(localInput[start + extractIdx + k], out nextN)) {
                                                 aNode = nextN;
                                             } else { 
                                                 aNode = null; 
@@ -1455,7 +1974,7 @@ namespace MyTools {
                                             if (continuousNode != null) 
                                             {
                                                 TrieNode nextN = null;
-                                                if (continuousNode.Children != null && continuousNode.Children.TryGetValue(localInput[start + vk], out nextN)) {
+                                                if (continuousNode.TryGetChild(localInput[start + vk], out nextN)) {
                                                     continuousNode = nextN;
                                                 } else {
                                                     continuousNode = null;
@@ -1494,7 +2013,7 @@ namespace MyTools {
                                                 if (sNode != null) 
                                                 {
                                                     TrieNode nextSN = null;
-                                                    if (sNode.Children != null && sNode.Children.TryGetValue(localInput[start + sk], out nextSN)) 
+                                                    if (sNode.TryGetChild(localInput[start + sk], out nextSN)) 
                                                     {
                                                         sNode = nextSN;
                                                         // 發現假象，收刀不砍
@@ -1529,8 +2048,11 @@ namespace MyTools {
 
                                 string openccTarget = null;
                                 TrieNode node2 = rootNodes[firstChar2];
+                                TrieNode cachedNode = routeNext[extractIdx] == nxt ? routeNode[extractIdx] : null;
 
-                                if (node2 != null) {
+                                if (wordLen > 1 && cachedNode != null && cachedNode.Value != null) {
+                                    openccTarget = cachedNode.Value;
+                                } else if (node2 != null) {
                                     if (wordLen == 1) {
                                         if (isCtx && !isShift && LogicDelegate != null && HasContextLogic[firstChar2]) {
                                             string logicResult = LogicDelegate((int)firstChar2, start + extractIdx, localInput);
@@ -1543,7 +2065,7 @@ namespace MyTools {
                                         TrieNode currNode = node2;
                                         for (int k = 1; k < wordLen; k++) {
                                             TrieNode nextN;
-                                            if (currNode.Children != null && currNode.Children.TryGetValue(localInput[start + extractIdx + k], out nextN)) {
+                                            if (currNode.TryGetChild(localInput[start + extractIdx + k], out nextN)) {
                                                 currNode = nextN;
                                             } else {
                                                 currNode = null; break;
@@ -1557,7 +2079,9 @@ namespace MyTools {
                                 string finalTarget = null;
                                 if (openccTarget != null) {
                                     finalTarget = openccTarget;
-                                } else {
+                                } else if (wordLen > 1) {
+                                    // 單字分詞在前面的直接路徑已完成 ContextLogic 與 node2.Value 檢查。
+                                    // openccTarget 仍為 null 時，略過只會重複相同工作的單字 Fallback。
                                     int subK = 0;
                                     fbSb.Length = 0;
 
@@ -1575,9 +2099,11 @@ namespace MyTools {
                                             int scan = 1;
                                             TrieNode temp = fNode;
                                             while (subK + scan < wordLen) {
-                                                if ((temp.FastMask & (1UL << (localInput[start + extractIdx + subK + scan] & 63))) == 0) break;
+                                                char nextChar = localInput[start + extractIdx + subK + scan];
+                                                if ((temp.FastMask & (1UL << (nextChar & 63))) == 0 ||
+                                                    (temp.FastMask2 & (1UL << ((nextChar >> 6) & 63))) == 0) break;
                                                 TrieNode nextN;
-                                                if (temp.Children == null || !temp.Children.TryGetValue(localInput[start + extractIdx + subK + scan], out nextN)) break;
+                                                if (!temp.TryGetChild(nextChar, out nextN)) break;
                                                 temp = nextN;
                                                 if (temp.Value != null) {
                                                     longestMatchLen = scan + 1;
@@ -1644,9 +2170,11 @@ namespace MyTools {
                                     if (node.Value != null) { longestMatchLen = 1; longestMatchTarget = node.Value; }
                                     int j = i + 1; TrieNode curr = node;
                                     while (j < len) {
-                                        if ((curr.FastMask & (1UL << (localInput[start + j] & 63))) == 0) break;
+                                        char nextChar = localInput[start + j];
+                                        if ((curr.FastMask & (1UL << (nextChar & 63))) == 0 ||
+                                            (curr.FastMask2 & (1UL << ((nextChar >> 6) & 63))) == 0) break;
                                         TrieNode nextNode;
-                                        if (curr.Children == null || !curr.Children.TryGetValue(localInput[start + j], out nextNode)) break;
+                                        if (!curr.TryGetChild(nextChar, out nextNode)) break;
                                         curr = nextNode;
                                         if (curr.Value != null) { longestMatchLen = j - i + 1; longestMatchTarget = curr.Value; }
                                         j++;
@@ -1675,7 +2203,7 @@ namespace MyTools {
                                         if (aN.IsVisionAnchor) foundALen = 1;
                                         // 往前探勘
                                         for (int k = 1; k < longestMatchLen; k++) {
-                                            if (aN.Children != null && aN.Children.TryGetValue(localInput[start + i + k], out aN)) {
+                                            if (aN.TryGetChild(localInput[start + i + k], out aN)) {
                                                 if (aN.IsVisionAnchor) foundALen = k + 1;
                                             } else break;
                                         }
@@ -1690,9 +2218,9 @@ namespace MyTools {
                                         TrieNode vN = rootNodes[localInput[start + vIdx]];
 
                                         while (vk < len) {
-                                            if (vN != null && vN.Children != null) {
+                                            if (vN != null) {
                                                 TrieNode nextVN;
-                                                if (vN.Children.TryGetValue(localInput[start + vk], out nextVN)) vN = nextVN; else vN = null;
+                                                if (vN.TryGetChild(localInput[start + vk], out nextVN)) vN = nextVN; else vN = null;
                                             } else vN = null;
 
                                             int currentSubLen = vk - vIdx + 1;
@@ -1710,9 +2238,9 @@ namespace MyTools {
                                             TrieNode dN = rootNodes[localInput[start + dIdx]];
 
                                             while (dk < len) {
-                                                if (dN != null && dN.Children != null) {
+                                                if (dN != null) {
                                                     TrieNode nextDN;
-                                                    if (dN.Children.TryGetValue(localInput[start + dk], out nextDN)) dN = nextDN; else dN = null;
+                                                    if (dN.TryGetChild(localInput[start + dk], out nextDN)) dN = nextDN; else dN = null;
                                                 } else dN = null;
 
                                                 int currentSubLen = dk - dIdx + 1;
@@ -1729,7 +2257,7 @@ namespace MyTools {
                                                 if (bN != null) {
                                                     // 只找尋小於 foundALen - 1 的次長 Anchor
                                                     for (int k = 1; k < foundALen - 1; k++) {
-                                                        if (bN.Children != null && bN.Children.TryGetValue(localInput[start + i + k], out bN)) {
+                                                        if (bN.TryGetChild(localInput[start + i + k], out bN)) {
                                                             if (bN.IsVisionAnchor) bLen = k + 1;
                                                         } else break;
                                                     }
@@ -1740,7 +2268,7 @@ namespace MyTools {
                                                 // 重新定位 Target
                                                 TrieNode tN = rootNodes[localInput[start + i]]; 
                                                 for (int k = 1; k < longestMatchLen; k++) {
-                                                    if (tN.Children != null && tN.Children.TryGetValue(localInput[start + i + k], out tN)) {} else { tN = null; break; }
+                                                    if (tN.TryGetChild(localInput[start + i + k], out tN)) {} else { tN = null; break; }
                                                 }
                                                 longestMatchTarget = tN != null ? tN.Value : null;
                                             }
@@ -1799,7 +2327,7 @@ namespace MyTools {
                             if (lastMatchEnd < len) sb.Append(localInput, start + lastMatchEnd, len - lastMatchEnd);
                             chunksOut[tIdx] = sb.ToString();
                         }
-                        System.Threading.Interlocked.Add(ref totalReplaceCount, localReplaceCount);
+                        chunkReplaceCounts[tIdx] = localReplaceCount;
 
                         return state; 
                     },
@@ -1812,7 +2340,11 @@ namespace MyTools {
                     }
                 );
 
-                NativeSetClipboardText(string.Join("", chunksOut));
+                for (int i = 0; i < chunkReplaceCounts.Length; i++) {
+                    totalReplaceCount += chunkReplaceCounts[i];
+                }
+
+                NativeSetClipboardChunks(chunksOut);
                 return totalReplaceCount;
 
             } catch (Exception ex) { 
@@ -1825,25 +2357,36 @@ namespace MyTools {
         }
 
         // 微型規則解譯器
-        static void CompileContextLogic(string jsSource, string mode) {
+        static void CompileContextLogic(string jsSource, string mode, JseeStructureExtractor extractor) {
             FastContextRules.Clear();
+            Array.Clear(FastContextRuleArray, 0, FastContextRuleArray.Length);
             Array.Clear(HasContextLogic, 0, HasContextLogic.Length);
 
-            var mMatch = Regex.Match(jsSource, @"const\s+m\s*=\s*[""'](.*?)[""'];");
-            string mVal = mMatch.Success ? mMatch.Groups[1].Value : "";
+            string mVal;
+            if (!extractor.TryGetConstString("m", out mVal)) {
+                Match legacyM = Regex.Match(jsSource, @"const\s+m\s*=\s*[""'](.*?)[""'];");
+                mVal = legacyM.Success ? legacyM.Groups[1].Value : "";
+            }
 
-            var sn2Match = Regex.Match(jsSource, @"const\s+sn2\s*=\s*[""'](.*?)[""'];");
+            string sn2Value;
+            if (!extractor.TryGetConstString("sn2", out sn2Value)) {
+                Match legacySn2 = Regex.Match(jsSource, @"const\s+sn2\s*=\s*[""'](.*?)[""'];");
+                sn2Value = legacySn2.Success ? legacySn2.Groups[1].Value : "";
+            }
             HashSet<uint> sn2Set = new HashSet<uint>();
-            if (sn2Match.Success) {
-                string[] sn2Words = sn2Match.Groups[1].Value.Split(new char[] { '|' }, StringSplitOptions.RemoveEmptyEntries);
+            if (!string.IsNullOrEmpty(sn2Value)) {
+                string[] sn2Words = sn2Value.Split(new char[] { '|' }, StringSplitOptions.RemoveEmptyEntries);
                 foreach (string w in sn2Words) {
-                    if (w.Length == 2) {
-                        sn2Set.Add(((uint)w[0] << 16) | w[1]);
-                    }
+                    if (w.Length == 2) sn2Set.Add(((uint)w[0] << 16) | w[1]);
                 }
             }
 
-            var entryMatches = Regex.Matches(jsSource, @"[""']?(?<id>0x[0-9A-Fa-f]+|[^""'\s\[\]:,])[""']?\s*:\s*\[(?<rules>.*?)\]\s*(?=[,}])", RegexOptions.Singleline);
+            string contextSource;
+            if (!extractor.TryGetConstObjectBody("ContextLogicData", out contextSource)) {
+                contextSource = jsSource;
+            }
+
+            var entryMatches = Regex.Matches(contextSource, @"[""']?(?<id>0x[0-9A-Fa-f]+|[^""'\s\[\]:,])[""']?\s*:\s*\[(?<rules>.*?)\]\s*(?=[,}])", RegexOptions.Singleline);
 
             foreach (Match entry in entryMatches) {
                 string idStr = entry.Groups["id"].Value;
@@ -1900,25 +2443,26 @@ namespace MyTools {
                 }
 
                 if (orderedRules.Count > 0) {
+                    ContextRule[] ruleArray = orderedRules.ToArray();
+                    for (int rr = 0; rr < ruleArray.Length; rr++) {
+                        ruleArray[rr].ConditionArray = ruleArray[rr].Conditions.ToArray();
+                    }
                     FastContextRules[anchorChar] = orderedRules;
+                    FastContextRuleArray[anchorChar] = ruleArray;
                     HasContextLogic[anchorChar] = true;
                 }
             }
 
             LogicDelegate = (int c, int idx, string text) => {
-                char ch = (char)c;
-                if (!FastContextRules.ContainsKey(ch)) return null;
+                ContextRule[] rules = FastContextRuleArray[(char)c];
+                if (rules == null) return null;
 
-                List<ContextRule> rules = FastContextRules[ch];
-                int rulesCount = rules.Count;
-
-                for (int r = 0; r < rulesCount; r++) {
+                for (int r = 0; r < rules.Length; r++) {
                     ContextRule rule = rules[r];
-                    List<ContextCondition> conds = rule.Conditions;
-                    int condsCount = conds.Count;
+                    ContextCondition[] conds = rule.ConditionArray;
                     bool isMatch = true;
 
-                    for (int i = 0; i < condsCount; i++) {
+                    for (int i = 0; i < conds.Length; i++) {
                         ContextCondition cond = conds[i];
                         int targetIdx = idx + cond.Offset;
 
@@ -1928,15 +2472,16 @@ namespace MyTools {
                                 uint key = ((uint)text[targetIdx] << 16) | text[targetIdx + 1];
                                 if (sn2Set.Contains(key)) exists = true;
                             }
-                            if (cond.IsExclude) { if (exists) { isMatch = false; break; } } 
+                            if (cond.IsExclude) { if (exists) { isMatch = false; break; } }
                             else { if (!exists) { isMatch = false; break; } }
                         } else {
                             char testChar = (targetIdx >= 0 && targetIdx < text.Length) ? text[targetIdx] : ' ';
+                            string charSet = cond.CharSet;
                             bool charExists = false;
-                            for (int k = 0; k < cond.CharSet.Length; k++) {
-                                if (cond.CharSet[k] == testChar) { charExists = true; break; }
+                            for (int k = 0; k < charSet.Length; k++) {
+                                if (charSet[k] == testChar) { charExists = true; break; }
                             }
-                            if (cond.IsExclude) { if (charExists) { isMatch = false; break; } } 
+                            if (cond.IsExclude) { if (charExists) { isMatch = false; break; } }
                             else { if (!charExists) { isMatch = false; break; } }
                         }
                     }
@@ -1946,15 +2491,82 @@ namespace MyTools {
             };
         }
 
+        static bool TryGetJiebaLogFreq(
+            string source,
+            int start,
+            int length,
+            double logTotal,
+            Dictionary<int, double> cache,
+            out double logFreq) {
+
+            logFreq = 0;
+            if (length <= 0) return false;
+
+            int value = 0;
+            bool isInteger = true;
+            for (int i = 0; i < length; i++) {
+                char c = source[start + i];
+                if (c < '0' || c > '9') {
+                    isInteger = false;
+                    break;
+                }
+
+                int digit = c - '0';
+                if (value > (int.MaxValue - digit) / 10) {
+                    isInteger = false;
+                    break;
+                }
+                value = value * 10 + digit;
+            }
+
+            if (isInteger && value > 0) {
+                if (!cache.TryGetValue(value, out logFreq)) {
+                    logFreq = Math.Log((double)value) - logTotal;
+                    cache[value] = logFreq;
+                }
+                return true;
+            }
+
+            string freqText = source.Substring(start, length);
+            double frequency;
+            if (!double.TryParse(freqText, out frequency)) return false;
+            logFreq = Math.Log(frequency) - logTotal;
+            return true;
+        }
+
+        static void AddJiebaWord(
+            TrieNode[] roots,
+            string source,
+            int wordStart,
+            int wordLength,
+            double logFreq) {
+
+            if (wordLength <= 0) return;
+
+            char firstChar = source[wordStart];
+            if (roots[firstChar] == null) roots[firstChar] = new TrieNode();
+            TrieNode current = roots[firstChar];
+
+            int wordEnd = wordStart + wordLength;
+            for (int i = wordStart + 1; i < wordEnd; i++) {
+                char c = source[i];
+                current.FastMask |= 1UL << (c & 63);
+                current.FastMask2 |= 1UL << ((c >> 6) & 63);
+                current = current.GetOrAddChild(c);
+            }
+
+            current.LogFreq = logFreq;
+        }
+
         static void AddWord(TrieNode[] roots, string k, string v, double logFreq = -18.0, byte flag = 0) {
             if (string.IsNullOrEmpty(k)) return;
             char f = k[0]; if (roots[f] == null) roots[f] = new TrieNode();
             TrieNode c = roots[f];
             for (int i = 1; i < k.Length; i++) {
-                if (c.Children == null) c.Children = new Dictionary<char, TrieNode>();
-                if (!c.Children.ContainsKey(k[i])) c.Children[k[i]] = new TrieNode();
-                c.FastMask |= 1UL << (k[i] & 63);
-                c = c.Children[k[i]];
+                char nextChar = k[i];
+                c.FastMask |= 1UL << (nextChar & 63);
+                c.FastMask2 |= 1UL << ((nextChar >> 6) & 63);
+                c = c.GetOrAddChild(nextChar);
             } 
             if (v != null) {
                 c.Value = v;
@@ -1967,15 +2579,24 @@ namespace MyTools {
             if ((flag & 4) != 0) c.IsContextAnchor = true;
         }
 
-        static string ExtractBlock(string src, string name) { 
-            Match m = Regex.Match(src, name + @"\s*=\s*[`](?<c>[\s\S]*?)[`]", RegexOptions.Singleline); 
-            return m.Success ? m.Groups["c"].Value : ""; 
+        static string ExtractBlock(string src, string name, JseeStructureExtractor extractor) {
+            string value;
+            if (extractor.TryGetConstTemplate(name, out value)) return value;
+            Match legacyMatch = Regex.Match(src, name + @"\s*=\s*[`](?<c>[\s\S]*?)[`]", RegexOptions.Singleline);
+            return legacyMatch.Success ? legacyMatch.Groups["c"].Value : "";
         }
 
-        static HashSet<string> ExtractSet(string src, string name) {
+        static HashSet<string> ExtractSet(string src, string name, JseeStructureExtractor extractor) {
             var set = new HashSet<string>();
-            Match m = Regex.Match(src, name + @"\s*=\s*new\s*Set\(\[\s*(.*?)\s*\]\)", RegexOptions.Singleline);
-            if (m.Success) foreach (Match im in Regex.Matches(m.Groups[1].Value, @"""(.*?)""|'(.*?)'")) set.Add(im.Groups[1].Value + im.Groups[2].Value);
+            string body;
+            if (!extractor.TryGetConstSetBody(name, out body)) {
+                Match legacyMatch = Regex.Match(src, name + @"\s*=\s*new\s*Set\(\[\s*(.*?)\s*\]\)", RegexOptions.Singleline);
+                if (!legacyMatch.Success) return set;
+                body = legacyMatch.Groups[1].Value;
+            }
+            foreach (Match item in Regex.Matches(body, @"""(.*?)""|'(.*?)'")) {
+                set.Add(item.Groups[1].Value + item.Groups[2].Value);
+            }
             return set;
         }
     }
